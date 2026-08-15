@@ -1,6 +1,10 @@
 package com.thinkoutloud.think_out_loud
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
@@ -13,6 +17,7 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
 import java.io.File
 import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicBoolean
@@ -21,18 +26,27 @@ import kotlin.math.max
 
 /**
  * Direct native input-to-output audio tap, per docs/audio-architecture.md:
- * VOICE_COMMUNICATION input source (avoids extra AEC/AGC/NS fighting the
- * passthrough) feeding a PERFORMANCE_MODE_LOW_LATENCY AudioTrack on a
- * dedicated thread. Dart only calls start/stop and reads level/route/
- * interruption events via [onEvent] — raw PCM never crosses the platform
- * channel.
+ * VOICE_RECOGNITION input source (AGC/NS off by default, unlike
+ * VOICE_COMMUNICATION, so the passthrough isn't quietly clamped) feeding
+ * a PERFORMANCE_MODE_LOW_LATENCY AudioTrack on a dedicated thread with
+ * real-time audio scheduling. Dart only calls start/stop and reads
+ * level/route/interruption events via [onEvent] — raw PCM never crosses
+ * the platform channel.
+ *
+ * Bluetooth note: A2DP (what carries earbuds' audio *output*) is
+ * one-way. Capturing *input* from a Bluetooth headset's mic requires
+ * explicitly negotiating the SCO link (`startBluetoothSco`) — without
+ * it, AudioRecord silently falls back to the phone's body mic even
+ * while output plays through the earbuds. SCO is a Bluetooth Classic
+ * voice-call profile: it has its own inherent latency and bandwidth
+ * ceiling (narrowband codec) that no amount of buffer tuning here can
+ * remove — wired headphones will always be snappier and clearer than a
+ * fully Bluetooth (mic + earbuds) setup. See startWithBluetoothSco().
  *
  * This uses the framework AudioRecord/AudioTrack low-latency ("FAST
  * track") path rather than hand-rolled AAudio/Oboe JNI, so it builds with
  * the standard Android Gradle plugin only (no NDK/CMake toolchain
- * required) while still avoiding the Dart hot path. See the final report
- * for why measured round-trip latency could not be verified in this
- * sandboxed build environment (no physical device or headphones).
+ * required) while still avoiding the Dart hot path.
  */
 class AudioEngine(
     private val context: Context,
@@ -44,6 +58,7 @@ class AudioEngine(
         private const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
         private const val BYTES_PER_SAMPLE = 2
         private const val LEVEL_EVERY_N_BUFFERS = 5
+        private const val SCO_CONNECT_TIMEOUT_MS = 4000L
     }
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -61,6 +76,10 @@ class AudioEngine(
 
     private var focusRequest: AudioFocusRequest? = null
     private var deviceCallback: AudioDeviceCallback? = null
+
+    private var scoActive = false
+    private var scoReceiver: BroadcastReceiver? = null
+    private var scoTimeoutRunnable: Runnable? = null
 
     fun currentRoute(): String {
         val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
@@ -82,10 +101,122 @@ class AudioEngine(
         }
     }
 
-    /** @throws SecurityException if RECORD_AUDIO isn't granted. */
-    fun start(outputPath: String) {
-        if (running.get()) return
+    /**
+     * @param onResult called exactly once, on the main thread, with `null`
+     *   on success or the failure cause. Bluetooth routes negotiate SCO
+     *   asynchronously (~1-3s) before the engine actually starts; wired/
+     *   speaker routes start synchronously and call back immediately.
+     */
+    fun start(outputPath: String, onResult: (Throwable?) -> Unit) {
+        if (running.get()) {
+            onResult(null)
+            return
+        }
+        if (currentRoute() == "bluetooth") {
+            startWithBluetoothSco(outputPath, onResult)
+        } else {
+            try {
+                startEngineInternal(outputPath)
+                onResult(null)
+            } catch (e: Exception) {
+                onResult(e)
+            }
+        }
+    }
 
+    /**
+     * A2DP (Bluetooth earbuds' normal audio *output* profile) is
+     * one-way — it carries no microphone signal. Getting input from a
+     * Bluetooth headset's mic requires explicitly bringing up the SCO
+     * link first; skipping this is why input silently falls back to the
+     * phone's own mic. SCO is asynchronous (the headset has to
+     * acknowledge over the air) and is a narrowband voice-call codec, so
+     * it's also the reason a Bluetooth-mic session has a firm latency
+     * and quality floor that a wired session doesn't.
+     */
+    private fun startWithBluetoothSco(outputPath: String, onResult: (Throwable?) -> Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) !=
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            onResult(SecurityException("Bluetooth permission not granted"))
+            return
+        }
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(receiverContext: Context, intent: Intent) {
+                val state = intent.getIntExtra(
+                    AudioManager.EXTRA_SCO_AUDIO_STATE,
+                    AudioManager.SCO_AUDIO_STATE_ERROR,
+                )
+                when (state) {
+                    AudioManager.SCO_AUDIO_STATE_CONNECTED -> {
+                        cleanupScoWait()
+                        try {
+                            startEngineInternal(outputPath)
+                            onResult(null)
+                        } catch (e: Exception) {
+                            teardownSco()
+                            onResult(e)
+                        }
+                    }
+                    AudioManager.SCO_AUDIO_STATE_ERROR, AudioManager.SCO_AUDIO_STATE_DISCONNECTED -> {
+                        cleanupScoWait()
+                        teardownSco()
+                        onResult(
+                            IllegalStateException(
+                                "Could not connect to the Bluetooth headset's microphone"
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        scoReceiver = receiver
+        context.registerReceiver(receiver, IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED))
+
+        val timeout = Runnable {
+            cleanupScoWait()
+            teardownSco()
+            onResult(
+                IllegalStateException("Timed out connecting to the Bluetooth headset's microphone")
+            )
+        }
+        scoTimeoutRunnable = timeout
+        mainHandler.postDelayed(timeout, SCO_CONNECT_TIMEOUT_MS)
+
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        @Suppress("DEPRECATION")
+        audioManager.startBluetoothSco()
+        @Suppress("DEPRECATION")
+        audioManager.isBluetoothScoOn = true
+        scoActive = true
+    }
+
+    private fun cleanupScoWait() {
+        scoTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        scoTimeoutRunnable = null
+        scoReceiver?.let {
+            try {
+                context.unregisterReceiver(it)
+            } catch (_: Exception) {
+            }
+        }
+        scoReceiver = null
+    }
+
+    private fun teardownSco() {
+        if (!scoActive) return
+        scoActive = false
+        @Suppress("DEPRECATION")
+        audioManager.stopBluetoothSco()
+        @Suppress("DEPRECATION")
+        audioManager.isBluetoothScoOn = false
+        audioManager.mode = AudioManager.MODE_NORMAL
+    }
+
+    /** @throws IllegalStateException if AudioRecord/AudioTrack fail to initialize. */
+    private fun startEngineInternal(outputPath: String) {
         sampleRate = readAudioManagerIntProperty(
             AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE,
             48000,
@@ -97,12 +228,18 @@ class AudioEngine(
 
         val minRecordBuf = AudioRecord.getMinBufferSize(sampleRate, CHANNEL_IN, ENCODING)
         val minTrackBuf = AudioTrack.getMinBufferSize(sampleRate, CHANNEL_OUT, ENCODING)
-        val targetBufBytes = nativeBufferFrames * BYTES_PER_SAMPLE * 4
+        // 2x the platform's own reported low-latency buffer — enough for
+        // double-buffering stability without adding avoidable delay.
+        val targetBufBytes = nativeBufferFrames * BYTES_PER_SAMPLE * 2
         val recordBufBytes = max(minRecordBuf, targetBufBytes)
         val trackBufBytes = max(minTrackBuf, targetBufBytes)
 
         val newRecord = AudioRecord.Builder()
-            .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+            // VOICE_RECOGNITION (not VOICE_COMMUNICATION): AGC/NS are off
+            // by default, so the passthrough isn't quietly attenuated —
+            // VOICE_COMMUNICATION is tuned for two-way calls and was
+            // making monitored audio noticeably quieter than the source.
+            .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
             .setAudioFormat(
                 AudioFormat.Builder()
                     .setEncoding(ENCODING)
@@ -116,7 +253,12 @@ class AudioEngine(
         val trackBuilder = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    // USAGE_MEDIA (not USAGE_VOICE_COMMUNICATION): routes
+                    // through the normal media volume stream that the
+                    // volume rocker actually controls, instead of the
+                    // separate in-call stream, which defaults much
+                    // quieter outside of an actual phone call.
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )
@@ -164,7 +306,13 @@ class AudioEngine(
         newTrack.play()
 
         val bufferFrames = recordBufBytes / BYTES_PER_SAMPLE
-        thread = Thread({ runLoop(bufferFrames) }, "AudioEngineThread").apply {
+        thread = Thread({
+            // Real-time audio scheduling class, not just a high Java
+            // thread priority — this is what actually keeps the OS from
+            // preempting the hot loop and adding jitter/latency.
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+            runLoop(bufferFrames)
+        }, "AudioEngineThread").apply {
             priority = Thread.MAX_PRIORITY
             start()
         }
@@ -214,10 +362,12 @@ class AudioEngine(
     }
 
     fun stop() {
+        cleanupScoWait()
         running.set(false)
         thread?.join(500)
         thread = null
         releaseRecordAndTrack()
+        teardownSco()
 
         abandonAudioFocus()
         unregisterDeviceCallback()
@@ -235,6 +385,7 @@ class AudioEngine(
         thread?.join(500)
         thread = null
         releaseRecordAndTrack()
+        teardownSco()
         mainHandler.post { onEvent(mapOf("type" to "interruption", "reason" to reason)) }
     }
 

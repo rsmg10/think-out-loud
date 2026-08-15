@@ -125,11 +125,31 @@ class NativeAudioMonitoringService implements AudioMonitoringService {
         'No headphone route detected — monitoring via speaker would cause feedback.',
       );
     }
+    // Capturing input from a Bluetooth headset's mic requires bringing
+    // up the SCO link natively, which on Android 12+ needs the runtime
+    // BLUETOOTH_CONNECT permission — request it up front so the native
+    // SCO negotiation in AudioEngine.kt doesn't fail on a missing grant.
+    if (route == AudioRoute.bluetooth) {
+      final bluetoothStatus = await Permission.bluetoothConnect.status;
+      if (!bluetoothStatus.isGranted &&
+          !(await Permission.bluetoothConnect.request()).isGranted) {
+        throw const AudioEngineException(
+          AudioEngineErrorType.permissionDenied,
+          "Bluetooth permission is required to use your headphones' microphone.",
+        );
+      }
+    }
     try {
       await _methodChannel.invokeMethod('start', {
         'outputPath': outputFilePath,
       });
     } on PlatformException catch (e) {
+      if (e.code == 'permission_denied') {
+        throw AudioEngineException(
+          AudioEngineErrorType.permissionDenied,
+          e.message ?? 'Permission is required to start monitoring.',
+        );
+      }
       throw AudioEngineException(
         AudioEngineErrorType.engineFailure,
         e.message ?? 'Native audio engine failed to start.',

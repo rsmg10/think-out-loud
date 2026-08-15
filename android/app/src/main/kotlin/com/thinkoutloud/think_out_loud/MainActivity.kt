@@ -40,13 +40,17 @@ class MainActivity : FlutterActivity() {
                         if (path == null) {
                             result.error("bad_args", "outputPath is required", null)
                         } else {
-                            try {
-                                audioEngine.start(path)
-                                result.success(null)
-                            } catch (e: SecurityException) {
-                                result.error("permission_denied", e.message, null)
-                            } catch (e: Exception) {
-                                result.error("engine_failure", e.message, null)
+                            // Bluetooth routes negotiate SCO asynchronously, so
+                            // the result is only sent once start() actually
+                            // finishes (success or failure) via this callback —
+                            // never call result.success/error before this.
+                            audioEngine.start(path) { error ->
+                                when (error) {
+                                    null -> result.success(null)
+                                    is SecurityException ->
+                                        result.error("permission_denied", error.message, null)
+                                    else -> result.error("engine_failure", error.message, null)
+                                }
                             }
                         }
                     }
