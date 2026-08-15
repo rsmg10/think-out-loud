@@ -45,6 +45,11 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
     state = const ThinkingUiState(phase: ThinkingPhase.starting);
     _sessionId = _uuid.v4();
     _createdAt = DateTime.now();
+    // Fetched up front (rather than left at the default `unknown`) so the
+    // UI can show "Connecting to your headphones…" during a Bluetooth
+    // SCO handshake instead of a bare spinner that looks stuck.
+    final startingRoute = await _audio.currentRoute();
+    state = state.copyWith(route: startingRoute);
     try {
       _audioPath = await _audioStorage.newAudioPath(_sessionId!);
     } catch (e) {

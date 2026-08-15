@@ -4,6 +4,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme/app_spacing.dart';
 import '../../services/audio/audio_monitoring_service.dart';
+import '../../services/audio/audio_route.dart';
 import '../history/history_screen.dart';
 import '../settings/settings_screen.dart';
 import 'active_thinking_screen.dart';
@@ -81,6 +82,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 )
               : _IdleContent(
                   loading: state.phase == ThinkingPhase.starting,
+                  connectingBluetooth:
+                      state.phase == ThinkingPhase.starting &&
+                      state.route == AudioRoute.bluetooth,
                   onThink: () =>
                       ref.read(thinkingControllerProvider.notifier).start(),
                 ),
@@ -125,9 +129,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
 class _IdleContent extends StatelessWidget {
   final bool loading;
+  final bool connectingBluetooth;
   final VoidCallback onThink;
 
-  const _IdleContent({required this.loading, required this.onThink});
+  const _IdleContent({
+    required this.loading,
+    required this.connectingBluetooth,
+    required this.onThink,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -139,7 +148,9 @@ class _IdleContent extends StatelessWidget {
           ThinkButton(onPressed: loading ? null : onThink, loading: loading),
           const SizedBox(height: AppSpacing.xl),
           Text(
-            'Press Think, put your headphones on,\nand hear yourself think.',
+            connectingBluetooth
+                ? 'Connecting to your headphones…'
+                : 'Press Think, put your headphones on,\nand hear yourself think.',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyMedium,
           ),

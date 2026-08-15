@@ -14,6 +14,22 @@ import Foundation
 /// and mirrors the structure of the verified Android implementation in
 /// AudioEngine.kt, but it is unverified — flagged explicitly in the
 /// final report rather than claimed as tested.
+///
+/// Two fixes were ported over after real-device testing on Android
+/// surfaced them there (see AudioEngine.kt's header comment for the
+/// full story) — applied here proactively since the same root causes
+/// apply to AVAudioSession, but neither has been confirmed on an
+/// actual iPhone:
+/// - `.voiceChat` mode applies telephony-tuned AGC/echo-cancellation
+///   that measurably quietened monitored audio on Android's equivalent
+///   preset; switched to `.measurement`, which leaves that processing
+///   off. Echo cancellation isn't needed here since monitoring is only
+///   ever allowed through headphones, never the open speaker.
+/// - Letting the OS pick the input route implicitly was unreliable on
+///   Android (it silently kept the phone's own mic even with a
+///   Bluetooth headset connected and allowed). Explicitly preferring
+///   the Bluetooth HFP input when available, rather than hoping
+///   `.allowBluetooth` alone routes it correctly.
 final class AudioEngine {
     typealias EventSender = (_ event: [String: Any?]) -> Void
 
@@ -59,6 +75,19 @@ final class AudioEngine {
         return "speaker"
     }
 
+    /// Bluetooth headsets that support HFP (the profile carrying a mic
+    /// signal) don't always become the active input just because
+    /// `.allowBluetooth` is set — the Android equivalent (implicit SCO
+    /// routing) turned out not to be reliable either. Ask explicitly
+    /// instead of assuming.
+    private func preferBluetoothInputIfAvailable(_ session: AVAudioSession) {
+        guard let inputs = session.availableInputs else { return }
+        guard let bluetoothInput = inputs.first(where: { $0.portType == .bluetoothHFP }) else {
+            return
+        }
+        try? session.setPreferredInput(bluetoothInput)
+    }
+
     enum EngineError: Error {
         case permissionDenied
         case sessionConfigurationFailed(Error)
@@ -77,11 +106,12 @@ final class AudioEngine {
         do {
             try session.setCategory(
                 .playAndRecord,
-                mode: .voiceChat,
+                mode: .measurement,
                 options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker]
             )
             try session.setPreferredIOBufferDuration(0.005)
             try session.setActive(true, options: .notifyOthersOnDeactivation)
+            preferBluetoothInputIfAvailable(session)
         } catch {
             throw EngineError.sessionConfigurationFailed(error)
         }
