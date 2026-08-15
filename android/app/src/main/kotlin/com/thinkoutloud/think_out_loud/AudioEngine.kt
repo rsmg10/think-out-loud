@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
+import android.util.Log
 import java.io.File
 import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicBoolean
@@ -53,12 +54,19 @@ class AudioEngine(
     private val onEvent: (Map<String, Any?>) -> Unit,
 ) {
     companion object {
+        private const val TAG = "AudioEngine"
         private const val CHANNEL_IN = AudioFormat.CHANNEL_IN_MONO
         private const val CHANNEL_OUT = AudioFormat.CHANNEL_OUT_MONO
         private const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
         private const val BYTES_PER_SAMPLE = 2
         private const val LEVEL_EVERY_N_BUFFERS = 5
         private const val SCO_CONNECT_TIMEOUT_MS = 4000L
+        // Some OEM stacks (seen on MIUI) fire SCO_AUDIO_STATE_CONNECTED
+        // slightly before the SCO audio path is actually ready to open,
+        // so an immediate AudioRecord/AudioTrack init can fail. One short
+        // retry absorbs that race without a full failure+manual-retry
+        // cycle.
+        private const val SCO_READY_RETRY_DELAY_MS = 300L
     }
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -78,8 +86,17 @@ class AudioEngine(
     private var deviceCallback: AudioDeviceCallback? = null
 
     private var scoActive = false
+    private var scoAttemptInFlight = false
     private var scoReceiver: BroadcastReceiver? = null
     private var scoTimeoutRunnable: Runnable? = null
+
+    private fun scoStateName(state: Int): String = when (state) {
+        AudioManager.SCO_AUDIO_STATE_CONNECTED -> "CONNECTED"
+        AudioManager.SCO_AUDIO_STATE_DISCONNECTED -> "DISCONNECTED"
+        AudioManager.SCO_AUDIO_STATE_CONNECTING -> "CONNECTING"
+        AudioManager.SCO_AUDIO_STATE_ERROR -> "ERROR"
+        else -> "UNKNOWN($state)"
+    }
 
     fun currentRoute(): String {
         val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
@@ -108,17 +125,30 @@ class AudioEngine(
      *   speaker routes start synchronously and call back immediately.
      */
     fun start(outputPath: String, onResult: (Throwable?) -> Unit) {
+        val route = currentRoute()
+        Log.d(TAG, "start() route=$route running=${running.get()} scoAttemptInFlight=$scoAttemptInFlight")
         if (running.get()) {
             onResult(null)
             return
         }
-        if (currentRoute() == "bluetooth") {
+        if (route == "bluetooth") {
+            if (scoAttemptInFlight) {
+                // Without this guard, a second concurrent attempt would
+                // register its own receiver/timeout and call
+                // stopBluetoothSco() out from under the first one,
+                // producing exactly the rapid start/stop/start/stop
+                // cycling seen in the field — fail fast and loud instead.
+                Log.w(TAG, "start() called while a Bluetooth SCO connection attempt is already in flight; rejecting")
+                onResult(IllegalStateException("Already connecting to the Bluetooth microphone"))
+                return
+            }
             startWithBluetoothSco(outputPath, onResult)
         } else {
             try {
                 startEngineInternal(outputPath)
                 onResult(null)
             } catch (e: Exception) {
+                Log.e(TAG, "startEngineInternal failed (route=$route)", e)
                 onResult(e)
             }
         }
@@ -139,9 +169,12 @@ class AudioEngine(
             context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) !=
                 PackageManager.PERMISSION_GRANTED
         ) {
+            Log.w(TAG, "startWithBluetoothSco: BLUETOOTH_CONNECT not granted")
             onResult(SecurityException("Bluetooth permission not granted"))
             return
         }
+
+        scoAttemptInFlight = true
 
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(receiverContext: Context, intent: Intent) {
@@ -149,23 +182,19 @@ class AudioEngine(
                     AudioManager.EXTRA_SCO_AUDIO_STATE,
                     AudioManager.SCO_AUDIO_STATE_ERROR,
                 )
+                Log.d(TAG, "ACTION_SCO_AUDIO_STATE_UPDATED -> ${scoStateName(state)}")
                 when (state) {
                     AudioManager.SCO_AUDIO_STATE_CONNECTED -> {
                         cleanupScoWait()
-                        try {
-                            startEngineInternal(outputPath)
-                            onResult(null)
-                        } catch (e: Exception) {
-                            teardownSco()
-                            onResult(e)
-                        }
+                        attemptEngineStartAfterScoConnected(outputPath, onResult, retriesLeft = 1)
                     }
                     AudioManager.SCO_AUDIO_STATE_ERROR, AudioManager.SCO_AUDIO_STATE_DISCONNECTED -> {
                         cleanupScoWait()
                         teardownSco()
                         onResult(
                             IllegalStateException(
-                                "Could not connect to the Bluetooth headset's microphone"
+                                "Could not connect to the Bluetooth headset's microphone " +
+                                    "(state=${scoStateName(state)})"
                             )
                         )
                     }
@@ -176,6 +205,7 @@ class AudioEngine(
         context.registerReceiver(receiver, IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED))
 
         val timeout = Runnable {
+            Log.w(TAG, "Bluetooth SCO connect timed out after ${SCO_CONNECT_TIMEOUT_MS}ms")
             cleanupScoWait()
             teardownSco()
             onResult(
@@ -191,9 +221,40 @@ class AudioEngine(
         @Suppress("DEPRECATION")
         audioManager.isBluetoothScoOn = true
         scoActive = true
+        Log.d(TAG, "requested Bluetooth SCO connection")
+    }
+
+    /**
+     * SCO_AUDIO_STATE_CONNECTED can fire slightly before the SCO audio
+     * path is actually ready to open on some OEM stacks — retry once
+     * after a short delay before treating it as a real failure.
+     */
+    private fun attemptEngineStartAfterScoConnected(
+        outputPath: String,
+        onResult: (Throwable?) -> Unit,
+        retriesLeft: Int,
+    ) {
+        try {
+            startEngineInternal(outputPath)
+            Log.d(TAG, "engine started on Bluetooth SCO")
+            onResult(null)
+        } catch (e: Exception) {
+            if (retriesLeft > 0) {
+                Log.w(TAG, "engine start failed right after SCO connected, retrying once", e)
+                mainHandler.postDelayed(
+                    { attemptEngineStartAfterScoConnected(outputPath, onResult, retriesLeft - 1) },
+                    SCO_READY_RETRY_DELAY_MS,
+                )
+            } else {
+                Log.e(TAG, "engine start failed after SCO connected (no retries left)", e)
+                teardownSco()
+                onResult(e)
+            }
+        }
     }
 
     private fun cleanupScoWait() {
+        scoAttemptInFlight = false
         scoTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         scoTimeoutRunnable = null
         scoReceiver?.let {
@@ -208,6 +269,7 @@ class AudioEngine(
     private fun teardownSco() {
         if (!scoActive) return
         scoActive = false
+        Log.d(TAG, "tearing down Bluetooth SCO")
         @Suppress("DEPRECATION")
         audioManager.stopBluetoothSco()
         @Suppress("DEPRECATION")
