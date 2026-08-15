@@ -1,0 +1,221 @@
+import 'dart:async';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
+
+import '../../services/audio/audio_monitoring_service.dart';
+import '../../services/audio/audio_route.dart';
+import '../../services/storage/audio_file_storage.dart';
+import '../sessions/session_repository.dart';
+import '../sessions/thinking_session.dart';
+import 'thinking_state.dart';
+
+const _uuid = Uuid();
+
+/// Owns the idle -> starting -> thinking -> stopping -> saved state
+/// machine (plus the interrupted branch) described in
+/// docs/session-model.md. UI screens read [state] and call
+/// start/stop/resume/cancel — none of them touch the audio service or
+/// repository directly.
+class ThinkingController extends StateNotifier<ThinkingUiState> {
+  final AudioMonitoringService _audio;
+  final SessionRepository _repository;
+  final AudioFileStorage _audioStorage;
+
+  StreamSubscription<double>? _levelSub;
+  StreamSubscription<AudioRoute>? _routeSub;
+  StreamSubscription<MonitoringInterruption>? _interruptionSub;
+  StreamSubscription<void>? _resumedSub;
+  Timer? _ticker;
+
+  String? _sessionId;
+  String? _audioPath;
+  DateTime? _createdAt;
+  DateTime? _phaseStartedAt;
+  Duration _accumulated = Duration.zero;
+
+  ThinkingController(this._audio, this._repository, this._audioStorage)
+    : super(const ThinkingUiState()) {
+    _routeSub = _audio.routeChanges.listen(_onRouteChanged);
+    _interruptionSub = _audio.interruptions.listen(_onInterruption);
+    _resumedSub = _audio.resumed.listen((_) => _onNativeResumed());
+  }
+
+  Future<void> start() async {
+    state = const ThinkingUiState(phase: ThinkingPhase.starting);
+    _sessionId = _uuid.v4();
+    _createdAt = DateTime.now();
+    try {
+      _audioPath = await _audioStorage.newAudioPath(_sessionId!);
+    } catch (e) {
+      state = ThinkingUiState(
+        phase: ThinkingPhase.idle,
+        error: AudioEngineException(
+          AudioEngineErrorType.storageFailure,
+          'Could not prepare local storage for this session: $e',
+        ),
+      );
+      return;
+    }
+    try {
+      await _audio.start(_audioPath!);
+    } on AudioEngineException catch (e) {
+      state = ThinkingUiState(phase: ThinkingPhase.idle, error: e);
+      return;
+    }
+    _accumulated = Duration.zero;
+    _phaseStartedAt = DateTime.now();
+    _beginTicking();
+    _levelSub = _audio.levelStream.listen(
+      (level) => state = state.copyWith(level: level),
+    );
+    state = ThinkingUiState(
+      phase: ThinkingPhase.thinking,
+      startedAt: _createdAt,
+    );
+  }
+
+  Future<void> stop() async {
+    if (state.phase != ThinkingPhase.thinking &&
+        state.phase != ThinkingPhase.interrupted) {
+      return;
+    }
+    state = state.copyWith(phase: ThinkingPhase.stopping);
+    _stopTicking();
+    await _levelSub?.cancel();
+    try {
+      await _audio.stop();
+    } on AudioEngineException catch (e) {
+      state = state.copyWith(phase: ThinkingPhase.idle, error: e);
+      return;
+    }
+    final duration = _accumulated;
+    final session = ThinkingSession(
+      id: _sessionId!,
+      createdAt: _createdAt!,
+      startedAt: _createdAt!,
+      endedAt: DateTime.now(),
+      duration: duration,
+      audioReference: _audioPath,
+    );
+    try {
+      await _repository.save(session);
+    } catch (e) {
+      state = state.copyWith(
+        phase: ThinkingPhase.idle,
+        error: const AudioEngineException(
+          AudioEngineErrorType.storageFailure,
+          'Could not save the session.',
+        ),
+      );
+      return;
+    }
+    state = ThinkingUiState(phase: ThinkingPhase.saved, savedSession: session);
+  }
+
+  /// User acknowledged the completion screen — back to idle for a new
+  /// session.
+  void acknowledgeSaved() {
+    _resetSessionFields();
+    state = const ThinkingUiState();
+  }
+
+  Future<void> resumeAfterInterruption() async {
+    if (state.phase != ThinkingPhase.interrupted) return;
+    final route = await _audio.currentRoute();
+    if (!route.isSafeForMonitoring) {
+      // Still unsafe — stay interrupted, just refresh the reason.
+      state = state.copyWith(
+        route: route,
+        interruptionReason: InterruptionReason.routeBecameUnsafe,
+      );
+      return;
+    }
+    try {
+      await _audio.start(_audioPath!);
+    } on AudioEngineException catch (e) {
+      state = state.copyWith(error: e);
+      return;
+    }
+    _phaseStartedAt = DateTime.now();
+    _beginTicking();
+    state = state.copyWith(
+      phase: ThinkingPhase.thinking,
+      route: route,
+      clearInterruption: true,
+      clearError: true,
+    );
+  }
+
+  /// User chose not to resume — discard the in-progress (unsaved) audio
+  /// and go back to idle. Nothing was persisted yet since Stop was never
+  /// pressed.
+  Future<void> cancelFromInterruption() async {
+    if (state.phase != ThinkingPhase.interrupted) return;
+    if (_audioPath != null) {
+      await _audioStorage.delete(_audioPath!);
+    }
+    _resetSessionFields();
+    state = const ThinkingUiState();
+  }
+
+  void _onInterruption(MonitoringInterruption interruption) {
+    if (state.phase != ThinkingPhase.thinking) return;
+    _pauseForInterruption(interruption.reason);
+  }
+
+  void _onRouteChanged(AudioRoute route) {
+    if (state.phase == ThinkingPhase.thinking && !route.isSafeForMonitoring) {
+      _pauseForInterruption(InterruptionReason.routeBecameUnsafe);
+    }
+    state = state.copyWith(route: route);
+  }
+
+  void _pauseForInterruption(InterruptionReason reason) {
+    _stopTicking();
+    state = state.copyWith(
+      phase: ThinkingPhase.interrupted,
+      interruptionReason: reason,
+    );
+  }
+
+  void _onNativeResumed() {
+    // The platform signals the interruption itself has cleared (e.g. a
+    // phone call ended). We still wait for the user to confirm resuming
+    // via [resumeAfterInterruption] rather than silently restarting audio.
+  }
+
+  void _beginTicking() {
+    _ticker?.cancel();
+    _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      final since = DateTime.now().difference(_phaseStartedAt!);
+      state = state.copyWith(elapsed: _accumulated + since);
+    });
+  }
+
+  void _stopTicking() {
+    if (_phaseStartedAt != null) {
+      _accumulated += DateTime.now().difference(_phaseStartedAt!);
+    }
+    _ticker?.cancel();
+    _ticker = null;
+  }
+
+  void _resetSessionFields() {
+    _sessionId = null;
+    _audioPath = null;
+    _createdAt = null;
+    _phaseStartedAt = null;
+    _accumulated = Duration.zero;
+  }
+
+  @override
+  void dispose() {
+    _levelSub?.cancel();
+    _routeSub?.cancel();
+    _interruptionSub?.cancel();
+    _resumedSub?.cancel();
+    _ticker?.cancel();
+    super.dispose();
+  }
+}
