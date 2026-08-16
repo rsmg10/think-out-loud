@@ -60,7 +60,16 @@ abstract class AudioMonitoringService {
   /// the session can be played back later. Throws [AudioEngineException]
   /// if permission is missing, no safe route is available, or the native
   /// engine fails to start.
-  Future<void> start(String outputFilePath);
+  ///
+  /// [useBluetoothMic] controls what happens when the route is
+  /// Bluetooth: true (default behavior) negotiates SCO to capture from
+  /// the headset's own mic; false uses the phone's mic while still
+  /// playing output through the Bluetooth device via A2DP. See
+  /// UserPreferencesService for why this needs to be a user choice
+  /// rather than something the engine decides — SCO is the only way to
+  /// get Bluetooth mic input, but it's lower quality and higher latency
+  /// than the phone's mic.
+  Future<void> start(String outputFilePath, {bool useBluetoothMic = true});
 
   Future<void> stop();
 

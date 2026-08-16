@@ -76,9 +76,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not delete all data: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not delete all data: $e')),
+        );
       }
     } finally {
       if (mounted) setState(() => _deleting = false);
@@ -88,6 +88,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final preferBluetoothMic = ref.watch(preferBluetoothMicProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
@@ -101,13 +102,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             title: const Text('Current route'),
             subtitle: Text(_routeLabel(_route)),
           ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text("Use headphones' microphone"),
+            subtitle: const Text(
+              'On: works hands-free, but Bluetooth audio quality and '
+              'latency are noticeably worse — a limit of the Bluetooth '
+              'link itself, not this app. Off: uses your phone\'s '
+              'microphone instead (keep it within earshot), with '
+              "clearer, faster audio through your headphones' speakers.",
+            ),
+            value: preferBluetoothMic,
+            onChanged: (value) => ref
+                .read(preferBluetoothMicProvider.notifier)
+                .setPreferBluetoothMic(value),
+          ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.sd_storage_outlined),
             title: const Text('Storage used'),
-            subtitle: Text(
-              _bytesUsed == null ? '…' : formatBytes(_bytesUsed!),
-            ),
+            subtitle: Text(_bytesUsed == null ? '…' : formatBytes(_bytesUsed!)),
           ),
           const SizedBox(height: AppSpacing.lg),
           const Divider(),

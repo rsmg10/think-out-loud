@@ -95,7 +95,14 @@ final class AudioEngine {
         case fileCreationFailed(Error)
     }
 
-    func start(outputPath: String) throws {
+    /// - Parameter useBluetoothMic: when a Bluetooth headset is
+    ///   connected, true prefers its HFP mic (lower quality/higher
+    ///   latency — inherent to Bluetooth's voice-call codec, not
+    ///   something this app can improve); false leaves input on the
+    ///   phone's own mic while output still plays through the headset.
+    ///   Mirrors the Android SCO opt-out — see UserPreferencesService
+    ///   (Dart) for why this needs to be a user choice.
+    func start(outputPath: String, useBluetoothMic: Bool = true) throws {
         if isRunning { return }
 
         guard AVAudioSession.sharedInstance().recordPermission == .granted else {
@@ -111,7 +118,9 @@ final class AudioEngine {
             )
             try session.setPreferredIOBufferDuration(0.005)
             try session.setActive(true, options: .notifyOthersOnDeactivation)
-            preferBluetoothInputIfAvailable(session)
+            if useBluetoothMic {
+                preferBluetoothInputIfAvailable(session)
+            }
         } catch {
             throw EngineError.sessionConfigurationFailed(error)
         }

@@ -53,8 +53,9 @@ import UIKit
           result(FlutterError(code: "bad_args", message: "outputPath is required", details: nil))
           return
         }
+        let useBluetoothMic = args["useBluetoothMic"] as? Bool ?? true
         do {
-          try engine.start(outputPath: path)
+          try engine.start(outputPath: path, useBluetoothMic: useBluetoothMic)
           result(nil)
         } catch AudioEngine.EngineError.permissionDenied {
           result(FlutterError(code: "permission_denied", message: "Microphone permission not granted", details: nil))

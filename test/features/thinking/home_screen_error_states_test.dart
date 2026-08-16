@@ -10,6 +10,7 @@ import 'package:think_out_loud/features/thinking/thinking_controller.dart';
 import 'package:think_out_loud/features/thinking/thinking_state.dart';
 import 'package:think_out_loud/services/audio/audio_monitoring_service.dart';
 import 'package:think_out_loud/services/audio/audio_route.dart';
+import 'package:think_out_loud/services/settings/user_preferences_service.dart';
 import 'package:think_out_loud/services/storage/audio_file_storage.dart';
 
 class _InertAudioMonitoringService implements AudioMonitoringService {
@@ -28,11 +29,18 @@ class _InertAudioMonitoringService implements AudioMonitoringService {
   @override
   Future<AudioRoute> currentRoute() async => AudioRoute.headphones;
   @override
-  Future<void> start(String outputFilePath) async {}
+  Future<void> start(String outputFilePath, {bool useBluetoothMic = true}) async {}
   @override
   Future<void> stop() async {}
   @override
   Future<void> dispose() async {}
+}
+
+class _InertUserPreferencesService implements UserPreferencesService {
+  @override
+  Future<bool> getPreferBluetoothMic() async => true;
+  @override
+  Future<void> setPreferBluetoothMic(bool value) async {}
 }
 
 class _InertSessionRepository implements SessionRepository {
@@ -57,6 +65,7 @@ class _FixedErrorController extends ThinkingController {
         _InertAudioMonitoringService(),
         _InertSessionRepository(),
         AudioFileStorage(),
+        _InertUserPreferencesService(),
       ) {
     state = fixedState;
   }

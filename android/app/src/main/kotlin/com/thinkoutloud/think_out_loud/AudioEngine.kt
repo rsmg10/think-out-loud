@@ -119,19 +119,30 @@ class AudioEngine(
     }
 
     /**
+     * @param useBluetoothMic when the route is Bluetooth: true negotiates
+     *   SCO to capture from the headset's own mic (lower quality/higher
+     *   latency — a Bluetooth Classic protocol limit, not tunable here);
+     *   false skips SCO entirely and uses the phone's mic while output
+     *   still plays through the headset via A2DP. Ignored for wired/
+     *   speaker routes. See UserPreferencesService (Dart) for why this
+     *   is a user-facing choice rather than an engine decision.
      * @param onResult called exactly once, on the main thread, with `null`
-     *   on success or the failure cause. Bluetooth routes negotiate SCO
-     *   asynchronously (~1-3s) before the engine actually starts; wired/
-     *   speaker routes start synchronously and call back immediately.
+     *   on success or the failure cause. Bluetooth-mic routes negotiate
+     *   SCO asynchronously (~1-3s) before the engine actually starts;
+     *   every other case starts synchronously and calls back immediately.
      */
-    fun start(outputPath: String, onResult: (Throwable?) -> Unit) {
+    fun start(outputPath: String, useBluetoothMic: Boolean, onResult: (Throwable?) -> Unit) {
         val route = currentRoute()
-        Log.d(TAG, "start() route=$route running=${running.get()} scoAttemptInFlight=$scoAttemptInFlight")
+        Log.d(
+            TAG,
+            "start() route=$route useBluetoothMic=$useBluetoothMic " +
+                "running=${running.get()} scoAttemptInFlight=$scoAttemptInFlight",
+        )
         if (running.get()) {
             onResult(null)
             return
         }
-        if (route == "bluetooth") {
+        if (route == "bluetooth" && useBluetoothMic) {
             if (scoAttemptInFlight) {
                 // Without this guard, a second concurrent attempt would
                 // register its own receiver/timeout and call

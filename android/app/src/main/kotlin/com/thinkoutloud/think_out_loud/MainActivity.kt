@@ -37,6 +37,7 @@ class MainActivity : FlutterActivity() {
                     "currentRoute" -> result.success(audioEngine.currentRoute())
                     "start" -> {
                         val path = call.argument<String>("outputPath")
+                        val useBluetoothMic = call.argument<Boolean>("useBluetoothMic") ?: true
                         if (path == null) {
                             result.error("bad_args", "outputPath is required", null)
                         } else {
@@ -44,7 +45,7 @@ class MainActivity : FlutterActivity() {
                             // the result is only sent once start() actually
                             // finishes (success or failure) via this callback —
                             // never call result.success/error before this.
-                            audioEngine.start(path) { error ->
+                            audioEngine.start(path, useBluetoothMic) { error ->
                                 when (error) {
                                     null -> result.success(null)
                                     is SecurityException ->

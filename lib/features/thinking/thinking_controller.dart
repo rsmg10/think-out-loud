@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../services/audio/audio_monitoring_service.dart';
 import '../../services/audio/audio_route.dart';
+import '../../services/settings/user_preferences_service.dart';
 import '../../services/storage/audio_file_storage.dart';
 import '../sessions/session_repository.dart';
 import '../sessions/thinking_session.dart';
@@ -21,6 +22,7 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
   final AudioMonitoringService _audio;
   final SessionRepository _repository;
   final AudioFileStorage _audioStorage;
+  final UserPreferencesService _preferences;
 
   StreamSubscription<double>? _levelSub;
   StreamSubscription<AudioRoute>? _routeSub;
@@ -33,9 +35,14 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
   DateTime? _createdAt;
   DateTime? _phaseStartedAt;
   Duration _accumulated = Duration.zero;
+  bool _useBluetoothMic = true;
 
-  ThinkingController(this._audio, this._repository, this._audioStorage)
-    : super(const ThinkingUiState()) {
+  ThinkingController(
+    this._audio,
+    this._repository,
+    this._audioStorage,
+    this._preferences,
+  ) : super(const ThinkingUiState()) {
     _routeSub = _audio.routeChanges.listen(_onRouteChanged);
     _interruptionSub = _audio.interruptions.listen(_onInterruption);
     _resumedSub = _audio.resumed.listen((_) => _onNativeResumed());
@@ -45,11 +52,15 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
     state = const ThinkingUiState(phase: ThinkingPhase.starting);
     _sessionId = _uuid.v4();
     _createdAt = DateTime.now();
+    _useBluetoothMic = await _preferences.getPreferBluetoothMic();
     // Fetched up front (rather than left at the default `unknown`) so the
     // UI can show "Connecting to your headphones…" during a Bluetooth
     // SCO handshake instead of a bare spinner that looks stuck.
     final startingRoute = await _audio.currentRoute();
-    state = state.copyWith(route: startingRoute);
+    state = state.copyWith(
+      route: startingRoute,
+      useBluetoothMic: _useBluetoothMic,
+    );
     try {
       _audioPath = await _audioStorage.newAudioPath(_sessionId!);
     } catch (e) {
@@ -63,7 +74,7 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
       return;
     }
     try {
-      await _audio.start(_audioPath!);
+      await _audio.start(_audioPath!, useBluetoothMic: _useBluetoothMic);
     } on AudioEngineException catch (e) {
       state = ThinkingUiState(phase: ThinkingPhase.idle, error: e);
       return;
@@ -137,7 +148,7 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
       return;
     }
     try {
-      await _audio.start(_audioPath!);
+      await _audio.start(_audioPath!, useBluetoothMic: _useBluetoothMic);
     } on AudioEngineException catch (e) {
       state = state.copyWith(error: e);
       return;

@@ -20,6 +20,12 @@ class ThinkingUiState {
   final AudioEngineException? error;
   final ThinkingSession? savedSession;
 
+  /// Whether the current/most recent start attempt is using the
+  /// Bluetooth headset's mic (vs. the phone's own mic) — read from
+  /// UserPreferencesService at start(). Only meaningful in combination
+  /// with `route == AudioRoute.bluetooth`.
+  final bool useBluetoothMic;
+
   const ThinkingUiState({
     this.phase = ThinkingPhase.idle,
     this.startedAt,
@@ -29,6 +35,7 @@ class ThinkingUiState {
     this.interruptionReason,
     this.error,
     this.savedSession,
+    this.useBluetoothMic = true,
   });
 
   ThinkingUiState copyWith({
@@ -40,6 +47,7 @@ class ThinkingUiState {
     InterruptionReason? interruptionReason,
     AudioEngineException? error,
     ThinkingSession? savedSession,
+    bool? useBluetoothMic,
     bool clearError = false,
     bool clearInterruption = false,
     bool clearSavedSession = false,
@@ -57,6 +65,7 @@ class ThinkingUiState {
       savedSession: clearSavedSession
           ? null
           : (savedSession ?? this.savedSession),
+      useBluetoothMic: useBluetoothMic ?? this.useBluetoothMic,
     );
   }
 }

@@ -101,9 +101,7 @@ class NativeAudioMonitoringService implements AudioMonitoringService {
   @override
   Future<AudioRoute> currentRoute() async {
     try {
-      final result = await _methodChannel.invokeMethod<String>(
-        'currentRoute',
-      );
+      final result = await _methodChannel.invokeMethod<String>('currentRoute');
       return _routeFromString(result);
     } on PlatformException {
       return AudioRoute.unknown;
@@ -111,7 +109,10 @@ class NativeAudioMonitoringService implements AudioMonitoringService {
   }
 
   @override
-  Future<void> start(String outputFilePath) async {
+  Future<void> start(
+    String outputFilePath, {
+    bool useBluetoothMic = true,
+  }) async {
     if (!await hasMicPermission() && !await requestMicPermission()) {
       throw const AudioEngineException(
         AudioEngineErrorType.permissionDenied,
@@ -129,7 +130,9 @@ class NativeAudioMonitoringService implements AudioMonitoringService {
     // up the SCO link natively, which on Android 12+ needs the runtime
     // BLUETOOTH_CONNECT permission — request it up front so the native
     // SCO negotiation in AudioEngine.kt doesn't fail on a missing grant.
-    if (route == AudioRoute.bluetooth) {
+    // Skipped entirely when the user has opted out of the Bluetooth mic
+    // (phone mic + Bluetooth output only) — no SCO, no need for it.
+    if (route == AudioRoute.bluetooth && useBluetoothMic) {
       final bluetoothStatus = await Permission.bluetoothConnect.status;
       if (!bluetoothStatus.isGranted &&
           !(await Permission.bluetoothConnect.request()).isGranted) {
@@ -142,6 +145,7 @@ class NativeAudioMonitoringService implements AudioMonitoringService {
     try {
       await _methodChannel.invokeMethod('start', {
         'outputPath': outputFilePath,
+        'useBluetoothMic': useBluetoothMic,
       });
     } on PlatformException catch (e) {
       if (e.code == 'permission_denied') {

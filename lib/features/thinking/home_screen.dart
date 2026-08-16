@@ -84,7 +84,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   loading: state.phase == ThinkingPhase.starting,
                   connectingBluetooth:
                       state.phase == ThinkingPhase.starting &&
-                      state.route == AudioRoute.bluetooth,
+                      state.route == AudioRoute.bluetooth &&
+                      state.useBluetoothMic,
                   onThink: () =>
                       ref.read(thinkingControllerProvider.notifier).start(),
                 ),
