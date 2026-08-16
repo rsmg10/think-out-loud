@@ -104,13 +104,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.mic_outlined),
             title: const Text("Use headphones' microphone"),
-            subtitle: const Text(
-              'On: works hands-free, but Bluetooth audio quality and '
-              'latency are noticeably worse — a limit of the Bluetooth '
-              'link itself, not this app. Off: uses your phone\'s '
-              'microphone instead (keep it within earshot), with '
-              "clearer, faster audio through your headphones' speakers.",
+            subtitle: Text(
+              preferBluetoothMic
+                  ? 'On: hands-free, but Bluetooth quality and latency are '
+                        'noticeably worse — a Bluetooth limit, not this app.'
+                  : "Off: uses your phone's mic (keep it within earshot) "
+                        'for clearer, faster audio.',
             ),
             value: preferBluetoothMic,
             onChanged: (value) => ref

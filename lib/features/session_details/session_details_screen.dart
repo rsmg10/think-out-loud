@@ -213,6 +213,7 @@ class _PlaybackControls extends StatelessWidget {
                         final playing = stateSnap.data?.playing ?? false;
                         return IconButton(
                           iconSize: 40,
+                          tooltip: playing ? 'Pause' : 'Play',
                           icon: Icon(
                             playing
                                 ? Icons.pause_circle_filled
