@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Think Out Loud uses your microphone to let you hear yourself think in real time. Audio stays on this device.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Think Out Loud uses on-device speech recognition to transcribe your thinking sessions.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

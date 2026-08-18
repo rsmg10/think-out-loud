@@ -7,6 +7,8 @@ import '../../services/audio/audio_monitoring_service.dart';
 import '../../services/audio/audio_route.dart';
 import '../../services/settings/user_preferences_service.dart';
 import '../../services/storage/audio_file_storage.dart';
+import '../../services/transcription/transcription_service.dart';
+import '../reflection/reflection_service.dart';
 import '../sessions/session_repository.dart';
 import '../sessions/thinking_session.dart';
 import 'thinking_state.dart';
@@ -23,6 +25,8 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
   final SessionRepository _repository;
   final AudioFileStorage _audioStorage;
   final UserPreferencesService _preferences;
+  final TranscriptionService _transcription;
+  final ReflectionService _reflection;
 
   StreamSubscription<double>? _levelSub;
   StreamSubscription<AudioRoute>? _routeSub;
@@ -42,6 +46,8 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
     this._repository,
     this._audioStorage,
     this._preferences,
+    this._transcription,
+    this._reflection,
   ) : super(const ThinkingUiState()) {
     _routeSub = _audio.routeChanges.listen(_onRouteChanged);
     _interruptionSub = _audio.interruptions.listen(_onInterruption);
@@ -79,6 +85,9 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
       state = ThinkingUiState(phase: ThinkingPhase.idle, error: e);
       return;
     }
+    // Transcription is supplementary, not the core feature — a failure
+    // here must never block or fail the actual thinking session.
+    unawaited(_transcription.startLiveTranscription());
     _accumulated = Duration.zero;
     _phaseStartedAt = DateTime.now();
     _beginTicking();
@@ -105,6 +114,7 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
       state = state.copyWith(phase: ThinkingPhase.idle, error: e);
       return;
     }
+    final transcript = await _transcription.stopLiveTranscription();
     final duration = _accumulated;
     final session = ThinkingSession(
       id: _sessionId!,
@@ -113,6 +123,7 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
       endedAt: DateTime.now(),
       duration: duration,
       audioReference: _audioPath,
+      transcript: transcript,
     );
     try {
       await _repository.save(session);
@@ -127,6 +138,48 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
       return;
     }
     state = ThinkingUiState(phase: ThinkingPhase.saved, savedSession: session);
+    if (transcript != null && transcript.trim().isNotEmpty) {
+      // Fire-and-forget: reflection runs in the background regardless of
+      // where the user navigates to next. Session Details reads whatever
+      // is in the DB when it's opened, and polls while status is pending
+      // (see SessionDetailsScreen) rather than this controller pushing
+      // updates to a screen that may not even be mounted.
+      unawaited(_processReflection(session));
+    }
+  }
+
+  Future<void> _processReflection(ThinkingSession session) async {
+    try {
+      await _repository.save(
+        session.copyWith(status: AiProcessingStatus.pending),
+      );
+    } catch (_) {
+      return;
+    }
+
+    ReflectionResult? result;
+    try {
+      result = await _reflection.reflect(session.transcript!);
+    } catch (_) {
+      result = null;
+    }
+
+    final updated = result == null
+        ? session.copyWith(status: AiProcessingStatus.failed)
+        : session.copyWith(
+            status: AiProcessingStatus.complete,
+            summary: result.summary,
+            keyIdeas: result.keyIdeas,
+            actionPoints: result.actionPoints,
+            openQuestions: result.openQuestions,
+          );
+    try {
+      await _repository.save(updated);
+    } catch (_) {
+      // Best-effort — if this save fails the session simply stays
+      // "pending" in the DB, which Session Details already renders as a
+      // (stalled) processing state rather than a crash.
+    }
   }
 
   /// User acknowledged the completion screen — back to idle for a new
@@ -168,6 +221,7 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
   /// pressed.
   Future<void> cancelFromInterruption() async {
     if (state.phase != ThinkingPhase.interrupted) return;
+    await _transcription.stopLiveTranscription();
     if (_audioPath != null) {
       await _audioStorage.delete(_audioPath!);
     }

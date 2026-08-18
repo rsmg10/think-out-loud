@@ -6,7 +6,10 @@ A Flutter app that lets someone put on headphones, press **Think**, speak,
 and hear their own voice back in near real time — an audio feedback loop
 that helps people think out loud without staring at a screen. Later phases
 add transcription, AI reflection, communication coaching, and cross-session
-memory. **This build is Phase 1 only.**
+memory. **Phase 1 (the audio loop, local persistence, History/Details) is
+done. Phase 2 (real transcription + AI reflection, in progress; Calendar/
+Notion integration, planned) supersedes some of Phase 1's hard rules below
+— see "Phase 2" for exactly what changed and why.**
 
 North star: *"Does hearing yourself think make it easier to keep thinking?"*
 Guiding principle: *every session should leave the user clearer than before.*
@@ -36,15 +39,50 @@ system silently.
   on, press Think, speak, hear yourself with low enough latency to be
   useful. If you cannot verify this on a real device/simulator with real
   headphones in this environment, say so plainly. Compiling is not testing.
-- No backend, no accounts, no auth in Phase 1.
+- No backend, no accounts, no auth in Phase 1. **(Superseded for Phase 2's
+  AI calls — see "Phase 2" below.)**
 - No AI API calls yet — build the service *interfaces* only
   (`TranscriptionService`, `SummarizationService`, `ReflectionService`,
   `CommunicationAnalysisService`, `MemoryService`), with mock/no-op
   implementations. Never call an AI provider directly from a widget.
-- Never embed provider API keys client-side.
+  **(Superseded for `TranscriptionService` — on-device, not a cloud call —
+  and `ReflectionService`, which now calls Gemini. Summarization/
+  communication/memory remain no-op.)**
+- Never embed provider API keys client-side. **(Knowingly superseded, as a
+  temporary shortcut, for the Gemini key — see "Phase 2" and
+  `docs/known-limitations.md`. Still applies to every other rule on this
+  list; this is not a general license to skip it elsewhere.)**
 - Sessions are local-first. No unnecessary uploads, no tracking, no ads.
+  Still true — Gemini reflection is the one deliberate exception, and only
+  the transcript (not raw audio) is ever sent, only when the user's
+  session actually produced one.
 - The live monitoring path (mic → output) must never round-trip through a
-  remote server.
+  remote server. Still an absolute rule, unaffected by Phase 2 — the AI
+  calls happen after a session ends, never in the live audio path.
+
+## Phase 2: real AI, in progress
+
+The user explicitly asked to move past Phase 1's AI boundary: real
+transcription, real summarization/task-extraction, and (planned) Google
+Calendar / Notion integration. This was a deliberate product decision, not
+scope creep — captured here so the "Hard rules" above don't read as
+silently contradicted.
+
+- **Transcription**: on-device (`speech_to_text`), live during a session,
+  chosen over a cloud API to stay local-first for as long as accuracy
+  allows. See `docs/known-limitations.md` for what's actually been
+  verified about this (one device, short window).
+- **Reflection** (summary/key ideas/action points/open questions): calls
+  Google Gemini with the session transcript. This is the one place in the
+  app that calls a real cloud AI provider — gated behind
+  `GeminiConfig.isConfigured`, so the app still works with no key
+  configured (reflection silently no-ops, same as Phase 1's behavior).
+- **API key handling is a known, temporary shortcut** — see
+  `docs/known-limitations.md` before treating this as production-ready.
+- **Calendar/Notion**: not built yet. When they land, calendar events and
+  Notion writes require explicit user confirmation per batch — never
+  silent automatic creation, since those are real side effects in the
+  user's own accounts.
 
 ## Architecture
 
@@ -58,13 +96,13 @@ lib/
     thinking/        # active session screen, start/stop
     sessions/         # session model + local persistence
     history/
-    reflection/        # interface + mock only
+    reflection/        # interface + real Gemini impl (Phase 2)
     communication/      # interface + mock only
     settings/
   services/
     audio/             # native-backed monitoring engine
-    transcription/      # interface + mock only
-    ai/                 # interface + mock only
+    transcription/      # interface + real on-device impl (Phase 2)
+    ai/                 # Gemini config/client + mock summarization
     storage/
   shared/
 ```

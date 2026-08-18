@@ -7,6 +7,7 @@ import '../features/sessions/sqlite_session_repository.dart';
 import '../features/sessions/thinking_session.dart';
 import '../features/thinking/thinking_controller.dart';
 import '../features/thinking/thinking_state.dart';
+import '../services/ai/gemini_reflection_service.dart';
 import '../services/ai/memory_service.dart';
 import '../services/ai/summarization_service.dart';
 import '../services/audio/audio_monitoring_service.dart';
@@ -15,6 +16,7 @@ import '../services/settings/shared_prefs_user_preferences_service.dart';
 import '../services/settings/user_preferences_service.dart';
 import '../services/storage/app_database.dart';
 import '../services/storage/audio_file_storage.dart';
+import '../services/transcription/on_device_transcription_service.dart';
 import '../services/transcription/transcription_service.dart';
 
 // Every provider below is overridable — tests and the widget tree swap
@@ -36,15 +38,20 @@ final audioMonitoringServiceProvider = Provider<AudioMonitoringService>((ref) {
   return service;
 });
 
-// Phase 1: interfaces only, real calls never happen. See CLAUDE.md.
+// Phase 2: real, on-device, no API key or network call involved — see
+// docs/audio-architecture.md-style verification in the Phase 2 plan (A0).
 final transcriptionServiceProvider = Provider<TranscriptionService>(
-  (ref) => const NoOpTranscriptionService(),
+  (ref) => OnDeviceTranscriptionService(),
 );
+// Phase 1: interfaces only, real calls never happen for these. See CLAUDE.md.
 final summarizationServiceProvider = Provider<SummarizationService>(
   (ref) => const NoOpSummarizationService(),
 );
+// Phase 2: real Gemini calls (see docs/known-limitations.md for the
+// local-only API key caveat). Falls back to a no-op result whenever
+// GEMINI_API_KEY isn't configured, so the app still works without it.
 final reflectionServiceProvider = Provider<ReflectionService>(
-  (ref) => const NoOpReflectionService(),
+  (ref) => GeminiReflectionService(),
 );
 final communicationAnalysisServiceProvider =
     Provider<CommunicationAnalysisService>(
@@ -65,6 +72,8 @@ final thinkingControllerProvider =
         ref.watch(sessionRepositoryProvider),
         ref.watch(audioFileStorageProvider),
         ref.watch(userPreferencesServiceProvider),
+        ref.watch(transcriptionServiceProvider),
+        ref.watch(reflectionServiceProvider),
       );
     });
 

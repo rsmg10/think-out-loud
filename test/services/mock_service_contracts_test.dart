@@ -5,14 +5,18 @@ import 'package:think_out_loud/services/ai/memory_service.dart';
 import 'package:think_out_loud/services/ai/summarization_service.dart';
 import 'package:think_out_loud/services/transcription/transcription_service.dart';
 
-/// Phase 1 must never call a real AI provider — CLAUDE.md's hard rules.
-/// These tests confirm the no-op implementations satisfy their
-/// interfaces and return "nothing happened" rather than throwing or
-/// producing fabricated results.
+/// Phase 1 must never call a real *cloud* AI provider — CLAUDE.md's hard
+/// rules (on-device transcription is a local platform capability, not a
+/// provider API call, so it's real as of Phase 2's A1; summarization/
+/// reflection/communication/memory remain no-op until their own Phase 2
+/// steps land). These tests confirm the no-op implementations satisfy
+/// their interfaces and return "nothing happened" rather than throwing
+/// or producing fabricated results.
 void main() {
   test('NoOpTranscriptionService satisfies TranscriptionService and no-ops', () async {
     const TranscriptionService service = NoOpTranscriptionService();
-    expect(await service.transcribe('/some/audio.wav'), isNull);
+    await service.startLiveTranscription();
+    expect(await service.stopLiveTranscription(), isNull);
   });
 
   test('NoOpSummarizationService satisfies SummarizationService and no-ops', () async {

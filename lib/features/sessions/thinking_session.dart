@@ -55,6 +55,11 @@ class ThinkingSession {
     DateTime? endedAt,
     Duration? duration,
     String? audioReference,
+    String? transcript,
+    String? summary,
+    List<String>? keyIdeas,
+    List<String>? actionPoints,
+    List<String>? openQuestions,
     AiProcessingStatus? status,
   }) {
     return ThinkingSession(
@@ -64,11 +69,11 @@ class ThinkingSession {
       endedAt: endedAt ?? this.endedAt,
       duration: duration ?? this.duration,
       audioReference: audioReference ?? this.audioReference,
-      transcript: transcript,
-      summary: summary,
-      keyIdeas: keyIdeas,
-      actionPoints: actionPoints,
-      openQuestions: openQuestions,
+      transcript: transcript ?? this.transcript,
+      summary: summary ?? this.summary,
+      keyIdeas: keyIdeas ?? this.keyIdeas,
+      actionPoints: actionPoints ?? this.actionPoints,
+      openQuestions: openQuestions ?? this.openQuestions,
       tags: tags,
       status: status ?? this.status,
     );

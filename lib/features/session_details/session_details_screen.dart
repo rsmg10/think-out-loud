@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -13,17 +15,75 @@ final _sessionDetailsProvider = FutureProvider.family<ThinkingSession?, String>(
   (ref, id) => ref.watch(sessionRepositoryProvider).getById(id),
 );
 
-/// Date/duration plus playback of the saved audio. Sections for
-/// transcript/summary/ideas simply don't render when empty rather than
-/// showing empty placeholders, per docs/mvp-scope.md.
-class SessionDetailsScreen extends ConsumerWidget {
+/// Date/duration plus playback of the saved audio, and (Phase 2) the
+/// transcript and Gemini reflection results. Sections for transcript/
+/// summary/ideas simply don't render when empty rather than showing
+/// empty placeholders, per docs/mvp-scope.md — that rule now covers "not
+/// yet processed" and "processing failed" too, not just "doesn't exist
+/// yet".
+class SessionDetailsScreen extends ConsumerStatefulWidget {
   final String sessionId;
 
   const SessionDetailsScreen({super.key, required this.sessionId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final sessionAsync = ref.watch(_sessionDetailsProvider(sessionId));
+  ConsumerState<SessionDetailsScreen> createState() =>
+      _SessionDetailsScreenState();
+}
+
+class _SessionDetailsScreenState extends ConsumerState<SessionDetailsScreen> {
+  Timer? _pollTimer;
+
+  // Reflection runs in the background (ThinkingController) and may still
+  // be in flight when this screen opens. There's no push channel from
+  // that background work back to a screen that might not even be
+  // mounted, so this screen polls lightly while status is pending
+  // instead — simpler than plumbing a stream through for something this
+  // infrequent.
+  void _maybeSchedulePoll(AiProcessingStatus? status) {
+    final isProcessing = status == AiProcessingStatus.pending;
+    if (isProcessing && _pollTimer == null) {
+      _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+        ref.invalidate(_sessionDetailsProvider(widget.sessionId));
+      });
+    } else if (!isProcessing && _pollTimer != null) {
+      _pollTimer!.cancel();
+      _pollTimer = null;
+    }
+  }
+
+  Future<void> _retryReflection(ThinkingSession session) async {
+    final transcript = session.transcript;
+    if (transcript == null || transcript.trim().isEmpty) return;
+    final repository = ref.read(sessionRepositoryProvider);
+    await repository.save(
+      session.copyWith(status: AiProcessingStatus.pending),
+    );
+    ref.invalidate(_sessionDetailsProvider(widget.sessionId));
+    final result = await ref.read(reflectionServiceProvider).reflect(transcript);
+    final updated = result == null
+        ? session.copyWith(status: AiProcessingStatus.failed)
+        : session.copyWith(
+            status: AiProcessingStatus.complete,
+            summary: result.summary,
+            keyIdeas: result.keyIdeas,
+            actionPoints: result.actionPoints,
+            openQuestions: result.openQuestions,
+          );
+    await repository.save(updated);
+    if (mounted) ref.invalidate(_sessionDetailsProvider(widget.sessionId));
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sessionAsync = ref.watch(_sessionDetailsProvider(widget.sessionId));
+    sessionAsync.whenData((session) => _maybeSchedulePoll(session?.status));
 
     return Scaffold(
       appBar: AppBar(
@@ -56,7 +116,10 @@ class SessionDetailsScreen extends ConsumerWidget {
               message: 'It may have already been deleted.',
             );
           }
-          return _SessionDetailsBody(session: session);
+          return _SessionDetailsBody(
+            session: session,
+            onRetryReflection: () => _retryReflection(session),
+          );
         },
       ),
     );
@@ -109,7 +172,12 @@ class SessionDetailsScreen extends ConsumerWidget {
 
 class _SessionDetailsBody extends StatefulWidget {
   final ThinkingSession session;
-  const _SessionDetailsBody({required this.session});
+  final VoidCallback onRetryReflection;
+
+  const _SessionDetailsBody({
+    required this.session,
+    required this.onRetryReflection,
+  });
 
   @override
   State<_SessionDetailsBody> createState() => _SessionDetailsBodyState();
@@ -161,8 +229,128 @@ class _SessionDetailsBodyState extends State<_SessionDetailsBody> {
             'No audio was saved for this session.',
             style: theme.textTheme.bodyMedium,
           ),
-        // Transcript/summary/ideas/etc. don't exist in Phase 1 — sections
-        // for them simply don't render, per docs/mvp-scope.md.
+        if (session.status == AiProcessingStatus.pending) ...[
+          const SizedBox(height: AppSpacing.xl),
+          Row(
+            children: [
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text('Reflecting on this session…', style: theme.textTheme.bodyMedium),
+            ],
+          ),
+        ],
+        if (session.status == AiProcessingStatus.failed) ...[
+          const SizedBox(height: AppSpacing.xl),
+          Row(
+            children: [
+              Icon(Icons.error_outline, size: 18, color: theme.colorScheme.error),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  'Reflection failed.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: widget.onRetryReflection,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ],
+        if (session.summary != null && session.summary!.trim().isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.xl),
+          _Section(title: 'Summary', child: Text(session.summary!)),
+        ],
+        if (session.keyIdeas.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.lg),
+          _Section(title: 'Key ideas', child: _BulletList(items: session.keyIdeas)),
+        ],
+        if (session.actionPoints.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.lg),
+          _Section(
+            title: 'Action points',
+            child: _BulletList(items: session.actionPoints, icon: Icons.check_box_outlined),
+          ),
+        ],
+        if (session.openQuestions.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.lg),
+          _Section(
+            title: 'Open questions',
+            child: _BulletList(items: session.openQuestions, icon: Icons.help_outline),
+          ),
+        ],
+        if (session.transcript != null && session.transcript!.trim().isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.lg),
+          Theme(
+            data: theme.copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: Text('Transcript', style: theme.textTheme.headlineMedium),
+              childrenPadding: const EdgeInsets.only(top: AppSpacing.sm),
+              expandedAlignment: Alignment.centerLeft,
+              children: [Text(session.transcript!, style: theme.textTheme.bodyMedium)],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _Section extends StatelessWidget {
+  final String title;
+  final Widget child;
+
+  const _Section({required this.title, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: theme.textTheme.headlineMedium),
+        const SizedBox(height: AppSpacing.sm),
+        child,
+      ],
+    );
+  }
+}
+
+class _BulletList extends StatelessWidget {
+  final List<String> items;
+  final IconData icon;
+
+  const _BulletList({required this.items, this.icon = Icons.circle});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final item in items)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Icon(icon, size: 14, color: theme.colorScheme.primary),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(child: Text(item, style: theme.textTheme.bodyMedium)),
+              ],
+            ),
+          ),
       ],
     );
   }

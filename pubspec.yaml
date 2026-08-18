@@ -54,6 +54,15 @@ dependencies:
   intl: ^0.19.0
   shared_preferences: ^2.3.3
 
+  # Phase 2: on-device transcription (verified compatible with the native
+  # audio engine — see A0 in the session's plan).
+  speech_to_text: ^7.0.0
+
+  # Phase 2: Gemini-backed reflection (summary/tasks/open questions).
+  # API key handling is a temporary local-dev shortcut — see
+  # lib/services/ai/gemini_config.dart.
+  google_generative_ai: ^0.4.6
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

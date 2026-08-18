@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:think_out_loud/core/providers.dart';
 import 'package:think_out_loud/core/theme/app_theme.dart';
+import 'package:think_out_loud/features/reflection/reflection_service.dart';
 import 'package:think_out_loud/features/sessions/session_repository.dart';
 import 'package:think_out_loud/features/sessions/thinking_session.dart';
 import 'package:think_out_loud/features/thinking/home_screen.dart';
@@ -12,6 +13,7 @@ import 'package:think_out_loud/services/audio/audio_monitoring_service.dart';
 import 'package:think_out_loud/services/audio/audio_route.dart';
 import 'package:think_out_loud/services/settings/user_preferences_service.dart';
 import 'package:think_out_loud/services/storage/audio_file_storage.dart';
+import 'package:think_out_loud/services/transcription/transcription_service.dart';
 
 class _InertAudioMonitoringService implements AudioMonitoringService {
   @override
@@ -43,6 +45,18 @@ class _InertUserPreferencesService implements UserPreferencesService {
   Future<void> setPreferBluetoothMic(bool value) async {}
 }
 
+class _InertTranscriptionService implements TranscriptionService {
+  @override
+  Future<void> startLiveTranscription() async {}
+  @override
+  Future<String?> stopLiveTranscription() async => null;
+}
+
+class _InertReflectionService implements ReflectionService {
+  @override
+  Future<ReflectionResult?> reflect(String transcript) async => null;
+}
+
 class _InertSessionRepository implements SessionRepository {
   @override
   Future<void> save(ThinkingSession session) async {}
@@ -66,6 +80,8 @@ class _FixedErrorController extends ThinkingController {
         _InertSessionRepository(),
         AudioFileStorage(),
         _InertUserPreferencesService(),
+        _InertTranscriptionService(),
+        _InertReflectionService(),
       ) {
     state = fixedState;
   }

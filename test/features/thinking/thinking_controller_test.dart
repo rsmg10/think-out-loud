@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:think_out_loud/features/reflection/reflection_service.dart';
 import 'package:think_out_loud/features/sessions/session_repository.dart';
 import 'package:think_out_loud/features/sessions/thinking_session.dart';
 import 'package:think_out_loud/features/thinking/thinking_controller.dart';
@@ -10,6 +11,7 @@ import 'package:think_out_loud/services/audio/audio_monitoring_service.dart';
 import 'package:think_out_loud/services/audio/audio_route.dart';
 import 'package:think_out_loud/services/settings/user_preferences_service.dart';
 import 'package:think_out_loud/services/storage/audio_file_storage.dart';
+import 'package:think_out_loud/services/transcription/transcription_service.dart';
 
 class MockAudioMonitoringService extends Mock
     implements AudioMonitoringService {}
@@ -21,6 +23,10 @@ class MockAudioFileStorage extends Mock implements AudioFileStorage {}
 class MockUserPreferencesService extends Mock
     implements UserPreferencesService {}
 
+class MockTranscriptionService extends Mock implements TranscriptionService {}
+
+class MockReflectionService extends Mock implements ReflectionService {}
+
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
 void main() {
@@ -28,6 +34,8 @@ void main() {
   late MockSessionRepository repository;
   late MockAudioFileStorage storage;
   late MockUserPreferencesService preferences;
+  late MockTranscriptionService transcription;
+  late MockReflectionService reflection;
   late StreamController<double> levelController;
   late StreamController<AudioRoute> routeController;
   late StreamController<MonitoringInterruption> interruptionController;
@@ -50,6 +58,8 @@ void main() {
     repository = MockSessionRepository();
     storage = MockAudioFileStorage();
     preferences = MockUserPreferencesService();
+    transcription = MockTranscriptionService();
+    reflection = MockReflectionService();
     levelController = StreamController<double>.broadcast();
     routeController = StreamController<AudioRoute>.broadcast();
     interruptionController =
@@ -73,8 +83,21 @@ void main() {
     when(
       () => preferences.getPreferBluetoothMic(),
     ).thenAnswer((_) async => true);
+    when(
+      () => transcription.startLiveTranscription(),
+    ).thenAnswer((_) async {});
+    when(
+      () => transcription.stopLiveTranscription(),
+    ).thenAnswer((_) async => null);
 
-    controller = ThinkingController(audio, repository, storage, preferences);
+    controller = ThinkingController(
+      audio,
+      repository,
+      storage,
+      preferences,
+      transcription,
+      reflection,
+    );
   });
 
   tearDown(() async {
@@ -117,6 +140,83 @@ void main() {
       verify(() => repository.save(any())).called(1);
     },
   );
+
+  test(
+    'a captured transcript triggers reflection: saved notProcessed, then pending, then complete',
+    () async {
+      when(
+        () =>
+            audio.start(any(), useBluetoothMic: any(named: 'useBluetoothMic')),
+      ).thenAnswer((_) async {});
+      when(() => audio.stop()).thenAnswer((_) async {});
+      when(
+        () => transcription.stopLiveTranscription(),
+      ).thenAnswer((_) async => 'I should call Sam about the budget.');
+      when(() => reflection.reflect(any())).thenAnswer(
+        (_) async => const ReflectionResult(
+          summary: 'Discussed the budget.',
+          keyIdeas: ['Budget needs revisiting'],
+          actionPoints: ['Call Sam about the budget'],
+          openQuestions: [],
+        ),
+      );
+
+      await controller.start();
+      await controller.stop();
+      await _settle();
+      await _settle();
+
+      final saved = verify(
+        () => repository.save(captureAny()),
+      ).captured.cast<ThinkingSession>();
+      expect(saved.map((s) => s.status).toList(), [
+        AiProcessingStatus.notProcessed,
+        AiProcessingStatus.pending,
+        AiProcessingStatus.complete,
+      ]);
+      expect(saved.last.summary, 'Discussed the budget.');
+      expect(saved.last.actionPoints, ['Call Sam about the budget']);
+    },
+  );
+
+  test(
+    'reflection failure marks the session failed instead of crashing',
+    () async {
+      when(
+        () =>
+            audio.start(any(), useBluetoothMic: any(named: 'useBluetoothMic')),
+      ).thenAnswer((_) async {});
+      when(() => audio.stop()).thenAnswer((_) async {});
+      when(
+        () => transcription.stopLiveTranscription(),
+      ).thenAnswer((_) async => 'some transcript');
+      when(() => reflection.reflect(any())).thenAnswer((_) async => null);
+
+      await controller.start();
+      await controller.stop();
+      await _settle();
+      await _settle();
+
+      final saved = verify(
+        () => repository.save(captureAny()),
+      ).captured.cast<ThinkingSession>();
+      expect(saved.last.status, AiProcessingStatus.failed);
+    },
+  );
+
+  test('no captured transcript means reflection is never triggered', () async {
+    when(
+      () => audio.start(any(), useBluetoothMic: any(named: 'useBluetoothMic')),
+    ).thenAnswer((_) async {});
+    when(() => audio.stop()).thenAnswer((_) async {});
+    // Default stub already returns null from stopLiveTranscription().
+
+    await controller.start();
+    await controller.stop();
+    await _settle();
+
+    verifyNever(() => reflection.reflect(any()));
+  });
 
   test(
     'interrupted branch: thinking -> interrupted -> thinking on resume',

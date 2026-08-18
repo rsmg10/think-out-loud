@@ -8,9 +8,10 @@ import '../../shared/utils/duration_format.dart';
 import '../../shared/widgets/state_views.dart';
 import '../session_details/session_details_screen.dart';
 
-/// Reverse-chronological list, date, duration, and (since no transcript
-/// exists yet) an auto-generated label — not a fake preview line
-/// implying transcription happened, per docs/mvp-scope.md.
+/// Reverse-chronological list, date, duration, and either the real
+/// summary (Phase 2 — once reflection has actually completed for that
+/// session) or an auto-generated placeholder label. Never a fake preview
+/// implying processing happened when it hasn't, per docs/mvp-scope.md.
 class HistoryScreen extends ConsumerWidget {
   const HistoryScreen({super.key});
 
@@ -46,12 +47,18 @@ class HistoryScreen extends ConsumerWidget {
             separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final session = sessions[index];
+              final hasSummary = session.summary != null &&
+                  session.summary!.trim().isNotEmpty;
               return ListTile(
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.lg,
                   vertical: AppSpacing.xs,
                 ),
-                title: Text(session.placeholderLabel),
+                title: Text(
+                  hasSummary ? session.summary! : session.placeholderLabel,
+                  maxLines: hasSummary ? 2 : 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 subtitle: Text(
                   '${dateFormat.format(session.startedAt)} · '
                   '${formatDurationWords(session.duration)}',
