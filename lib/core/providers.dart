@@ -12,6 +12,8 @@ import '../services/ai/memory_service.dart';
 import '../services/ai/summarization_service.dart';
 import '../services/audio/audio_monitoring_service.dart';
 import '../services/audio/native_audio_monitoring_service.dart';
+import '../services/calendar/calendar_service.dart';
+import '../services/calendar/google_calendar_service.dart';
 import '../services/settings/shared_prefs_user_preferences_service.dart';
 import '../services/settings/user_preferences_service.dart';
 import '../services/storage/app_database.dart';
@@ -63,6 +65,12 @@ final memoryServiceProvider = Provider<MemoryService>(
 
 final userPreferencesServiceProvider = Provider<UserPreferencesService>(
   (ref) => SharedPrefsUserPreferencesService(),
+);
+
+// Phase B: real Google Sign-In + Calendar API. Every write is gated behind
+// explicit user confirmation in ScheduleActionPointsScreen — see CLAUDE.md.
+final calendarServiceProvider = Provider<CalendarService>(
+  (ref) => GoogleCalendarService(),
 );
 
 final thinkingControllerProvider =

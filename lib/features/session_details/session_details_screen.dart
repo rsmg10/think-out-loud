@@ -9,6 +9,7 @@ import '../../core/providers.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../shared/utils/duration_format.dart';
 import '../../shared/widgets/state_views.dart';
+import '../scheduling/schedule_action_points_screen.dart';
 import '../sessions/thinking_session.dart';
 
 final _sessionDetailsProvider = FutureProvider.family<ThinkingSession?, String>(
@@ -277,6 +278,18 @@ class _SessionDetailsBodyState extends State<_SessionDetailsBody> {
           _Section(
             title: 'Action points',
             child: _BulletList(items: session.actionPoints, icon: Icons.check_box_outlined),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ScheduleActionPointsScreen(
+                  actionPoints: session.actionPoints,
+                ),
+              ),
+            ),
+            icon: const Icon(Icons.event_outlined),
+            label: const Text('Schedule with Google Calendar'),
           ),
         ],
         if (session.openQuestions.isNotEmpty) ...[

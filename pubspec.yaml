@@ -63,6 +63,13 @@ dependencies:
   # lib/services/ai/gemini_config.dart.
   google_generative_ai: ^0.4.6
 
+  # Phase B: Google Calendar scheduling. OAuth via Credential Manager
+  # (Android) needs a Web "serverClientId" alongside the Android client —
+  # see lib/services/calendar/google_calendar_config.dart.
+  google_sign_in: ^7.1.0
+  googleapis: ^13.2.0
+  http: ^1.2.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

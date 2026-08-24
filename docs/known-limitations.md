@@ -47,9 +47,33 @@ model) later if accuracy turns out to be inadequate for real sessions.
 No such evaluation has been done yet — on-device accuracy in practice is
 unverified beyond the A0 spike, which didn't test real speech content.
 
-## Calendar / Notion integration
+## Google Calendar integration (built, not yet end-to-end verified)
 
-Not built yet. Planned as a user-confirmed, per-batch action (never
-silent auto-creation of calendar events or Notion pages) once the user
-has created the necessary Google Cloud OAuth client and/or Notion
-integration token in their own accounts.
+`lib/services/calendar/google_calendar_service.dart` +
+`lib/features/scheduling/schedule_action_points_screen.dart` are built:
+Google Sign-In (via `google_sign_in`'s Credential Manager flow on
+Android) and event creation (via `googleapis`'s `CalendarApi`), reached
+from Session Details' "Schedule with Google Calendar" button whenever a
+session has action points. Every event creation requires the user to
+review the list, pick which items to schedule, and tap a button that
+states exactly how many events will be created — never silent.
+
+Verified: `flutter analyze`, `flutter test`, `flutter build apk --debug`
+all pass, and the app launches without crashing with the new
+`google_sign_in`/`googleapis`/`http` dependencies present. **Not
+verified**: an actual sign-in + event creation against a real Google
+account has not happened — that needs the user's phone and their own
+Google consent. The OAuth client IDs in
+`lib/services/calendar/google_calendar_config.dart` are configured for
+Android only, tied to *this sandboxed environment's* debug keystore
+SHA-1 — sign-in will fail on builds signed by a different machine/
+keystore until that keystore's SHA-1 is also registered as an Android
+OAuth client in the same Google Cloud project.
+
+Scope: `.../auth/calendar.events.owned` — the app can only create/edit/
+delete events it created itself, not manage the user's full calendar.
+
+## Notion integration
+
+Not built yet. Same shape as Calendar (user-confirmed, per-batch
+writes) once the user creates a Notion internal integration token.

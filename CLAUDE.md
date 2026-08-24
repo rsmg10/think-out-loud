@@ -79,10 +79,14 @@ silently contradicted.
   configured (reflection silently no-ops, same as Phase 1's behavior).
 - **API key handling is a known, temporary shortcut** — see
   `docs/known-limitations.md` before treating this as production-ready.
-- **Calendar/Notion**: not built yet. When they land, calendar events and
-  Notion writes require explicit user confirmation per batch — never
-  silent automatic creation, since those are real side effects in the
-  user's own accounts.
+- **Calendar**: built (`lib/services/calendar/`, `lib/features/scheduling/`)
+  — Google Sign-In + Calendar API, reached from Session Details. Every
+  event creation requires the user to pick which action points to
+  schedule and confirm a button stating exactly how many events will be
+  created — never silent. Not yet end-to-end verified against a real
+  Google account; see `docs/known-limitations.md`.
+- **Notion**: not built yet. Same confirmation-required shape as
+  Calendar, once the user creates a Notion integration token.
 
 ## Architecture
 
