@@ -11,7 +11,10 @@ import 'gemini_config.dart';
 /// called directly from a widget — only through the `ReflectionService`
 /// interface, per CLAUDE.md.
 class GeminiReflectionService implements ReflectionService {
-  static const _modelName = 'gemini-2.0-flash';
+  // gemini-2.0-flash was retired; Google's own API error names this as
+  // the replacement. Cheap/fast tier, matches the cost-consciousness
+  // the user asked for.
+  static const _modelName = 'gemini-3.6-flash';
 
   GenerativeModel? _model;
 
