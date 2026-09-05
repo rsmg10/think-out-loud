@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/app_motion.dart';
+
 /// A subtle waveform driven by input level only — motion should not draw
 /// attention to itself, per docs/design.md.
 class WaveformVisualizer extends StatelessWidget {
@@ -13,8 +15,8 @@ class WaveformVisualizer extends StatelessWidget {
     return SizedBox(
       height: 48,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        curve: Curves.easeOut,
+        duration: AppMotion.fast,
+        curve: AppMotion.enter,
         child: CustomPaint(
           size: const Size(double.infinity, 48),
           painter: _WaveformPainter(level: level, color: color),
