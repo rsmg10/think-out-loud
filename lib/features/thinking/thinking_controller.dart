@@ -198,6 +198,7 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
             summary: result.summary,
             keyIdeas: result.keyIdeas,
             actionPoints: result.actionPoints,
+            actionPointsDone: const [],
             openQuestions: result.openQuestions,
           );
     try {

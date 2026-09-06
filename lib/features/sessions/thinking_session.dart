@@ -30,6 +30,13 @@ class ThinkingSession {
   final String? summary;
   final List<String> keyIdeas;
   final List<String> actionPoints;
+
+  /// Parallel to [actionPoints] — which ones the user has checked off in
+  /// Session Details. Not length-enforced against [actionPoints] (a
+  /// shorter list just means "the rest aren't done yet"); reset to `[]`
+  /// whenever [actionPoints] itself is replaced by a fresh reflection, so
+  /// stale checkmarks never silently point at different content.
+  final List<bool> actionPointsDone;
   final List<String> openQuestions;
 
   final List<String> tags;
@@ -46,6 +53,7 @@ class ThinkingSession {
     this.summary,
     this.keyIdeas = const [],
     this.actionPoints = const [],
+    this.actionPointsDone = const [],
     this.openQuestions = const [],
     this.tags = const [],
     this.status = AiProcessingStatus.notProcessed,
@@ -59,6 +67,7 @@ class ThinkingSession {
     String? summary,
     List<String>? keyIdeas,
     List<String>? actionPoints,
+    List<bool>? actionPointsDone,
     List<String>? openQuestions,
     AiProcessingStatus? status,
   }) {
@@ -73,6 +82,7 @@ class ThinkingSession {
       summary: summary ?? this.summary,
       keyIdeas: keyIdeas ?? this.keyIdeas,
       actionPoints: actionPoints ?? this.actionPoints,
+      actionPointsDone: actionPointsDone ?? this.actionPointsDone,
       openQuestions: openQuestions ?? this.openQuestions,
       tags: tags,
       status: status ?? this.status,
@@ -101,6 +111,7 @@ class ThinkingSession {
       'summary': summary,
       'keyIdeas': jsonEncode(keyIdeas),
       'actionPoints': jsonEncode(actionPoints),
+      'actionPointsDone': jsonEncode(actionPointsDone),
       'openQuestions': jsonEncode(openQuestions),
       'tags': jsonEncode(tags),
       'status': status.name,
@@ -112,6 +123,12 @@ class ThinkingSession {
       final s = v as String?;
       if (s == null || s.isEmpty) return const [];
       return (jsonDecode(s) as List).cast<String>();
+    }
+
+    List<bool> decodeBoolListOrEmpty(Object? v) {
+      final s = v as String?;
+      if (s == null || s.isEmpty) return const [];
+      return (jsonDecode(s) as List).cast<bool>();
     }
 
     return ThinkingSession(
@@ -127,6 +144,7 @@ class ThinkingSession {
       summary: map['summary'] as String?,
       keyIdeas: decodeOrEmpty(map['keyIdeas']),
       actionPoints: decodeOrEmpty(map['actionPoints']),
+      actionPointsDone: decodeBoolListOrEmpty(map['actionPointsDone']),
       openQuestions: decodeOrEmpty(map['openQuestions']),
       tags: decodeOrEmpty(map['tags']),
       status: aiProcessingStatusFromName(map['status'] as String),
