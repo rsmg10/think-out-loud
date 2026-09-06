@@ -45,11 +45,31 @@ class ActiveThinkingScreen extends ConsumerWidget {
                   style: theme.textTheme.displayLarge,
                 ),
                 const SizedBox(height: AppSpacing.xl),
-                WaveformVisualizer(
-                  level: state.phase == ThinkingPhase.thinking
-                      ? state.level
-                      : 0.0,
-                ),
+                if (state.liveEchoEnabled)
+                  WaveformVisualizer(
+                    level: state.phase == ThinkingPhase.thinking
+                        ? state.level
+                        : 0.0,
+                  )
+                else
+                  // No monitoring engine is running (no waveform signal
+                  // to drive), so a flat/silent bar here would read as
+                  // broken — show a distinct affordance instead.
+                  Column(
+                    children: [
+                      Icon(
+                        Icons.graphic_eq,
+                        color: theme.colorScheme.primary,
+                        size: 32,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        "Speak — I'm just listening, nothing plays back",
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ],
+                  ),
                 const Spacer(),
                 if (state.phase == ThinkingPhase.interrupted)
                   _InterruptedControls(reason: state.interruptionReason)

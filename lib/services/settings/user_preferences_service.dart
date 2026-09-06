@@ -15,4 +15,18 @@ abstract class UserPreferencesService {
   Future<bool> getPreferBluetoothMic();
 
   Future<void> setPreferBluetoothMic(bool value);
+
+  /// Whether the live mic-to-headphone audio echo (the core Phase 1
+  /// feature) runs during a session.
+  ///
+  /// Default true. Some users want to speak directly at the phone
+  /// (no headphones, no live playback in their ear) and just get a
+  /// transcript + AI reflection afterward — the live echo is what
+  /// forces headphone use in the first place, since monitoring through
+  /// the speaker causes feedback. Disabling it removes the headphone
+  /// requirement entirely: no monitoring engine runs, no audio is
+  /// recorded, only transcription (and therefore reflection) does.
+  Future<bool> getLiveEchoEnabled();
+
+  Future<void> setLiveEchoEnabled(bool value);
 }

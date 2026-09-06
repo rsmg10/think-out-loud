@@ -86,6 +86,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       state.phase == ThinkingPhase.starting &&
                       state.route == AudioRoute.bluetooth &&
                       state.useBluetoothMic,
+                  liveEchoEnabled: ref.watch(liveEchoEnabledProvider),
                   onThink: () =>
                       ref.read(thinkingControllerProvider.notifier).start(),
                 ),
@@ -131,11 +132,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 class _IdleContent extends StatelessWidget {
   final bool loading;
   final bool connectingBluetooth;
+  final bool liveEchoEnabled;
   final VoidCallback onThink;
 
   const _IdleContent({
     required this.loading,
     required this.connectingBluetooth,
+    required this.liveEchoEnabled,
     required this.onThink,
   });
 
@@ -151,7 +154,9 @@ class _IdleContent extends StatelessWidget {
           Text(
             connectingBluetooth
                 ? 'Connecting to your headphones…'
-                : 'Press Think, put your headphones on,\nand hear yourself think.',
+                : liveEchoEnabled
+                ? 'Press Think, put your headphones on,\nand hear yourself think.'
+                : 'Press Think and just speak to your phone —\nno headphones needed.',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyMedium,
           ),

@@ -43,6 +43,10 @@ class _InertUserPreferencesService implements UserPreferencesService {
   Future<bool> getPreferBluetoothMic() async => true;
   @override
   Future<void> setPreferBluetoothMic(bool value) async {}
+  @override
+  Future<bool> getLiveEchoEnabled() async => true;
+  @override
+  Future<void> setLiveEchoEnabled(bool value) async {}
 }
 
 class _InertTranscriptionService implements TranscriptionService {
@@ -101,6 +105,9 @@ Future<void> _pumpHomeWithError(
             ),
           ),
         ),
+        userPreferencesServiceProvider.overrideWithValue(
+          _InertUserPreferencesService(),
+        ),
       ],
       child: MaterialApp(theme: AppTheme.light(), home: const HomeScreen()),
     ),
@@ -150,6 +157,9 @@ void main() {
         overrides: [
           thinkingControllerProvider.overrideWith(
             (ref) => _FixedErrorController(const ThinkingUiState()),
+          ),
+          userPreferencesServiceProvider.overrideWithValue(
+            _InertUserPreferencesService(),
           ),
         ],
         child: MaterialApp(theme: AppTheme.light(), home: const HomeScreen()),

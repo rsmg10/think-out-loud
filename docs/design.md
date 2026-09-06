@@ -106,6 +106,13 @@ stateDiagram-v2
     Settings --> Home: back
 ```
 
+`Starting` behaves differently depending on Settings → "Live voice echo":
+on (default), it's the flow above — safe-route check, native monitoring
+engine, waveform driven by real input level. Off, `Starting` only
+requests mic permission (no route check, no headphones required) and
+`ActiveThinking` shows a static "listening" affordance instead of the
+waveform, since no monitoring engine is running to drive it.
+
 Background, not a navigable state: after Stop, `AiProcessingStatus`
 moves `notProcessed → pending → complete|failed` while the user may
 already be anywhere else in the app. Session Details polls lightly

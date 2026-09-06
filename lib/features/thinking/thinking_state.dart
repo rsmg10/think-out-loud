@@ -26,6 +26,13 @@ class ThinkingUiState {
   /// with `route == AudioRoute.bluetooth`.
   final bool useBluetoothMic;
 
+  /// Whether the current/most recent session is running the live
+  /// mic-to-headphone audio echo — read from UserPreferencesService at
+  /// start(). When false, no headphones are required, no route safety
+  /// check applies, and `level`/`route` stay at their defaults since no
+  /// monitoring engine is running (transcription runs independently).
+  final bool liveEchoEnabled;
+
   const ThinkingUiState({
     this.phase = ThinkingPhase.idle,
     this.startedAt,
@@ -36,6 +43,7 @@ class ThinkingUiState {
     this.error,
     this.savedSession,
     this.useBluetoothMic = true,
+    this.liveEchoEnabled = true,
   });
 
   ThinkingUiState copyWith({
@@ -48,6 +56,7 @@ class ThinkingUiState {
     AudioEngineException? error,
     ThinkingSession? savedSession,
     bool? useBluetoothMic,
+    bool? liveEchoEnabled,
     bool clearError = false,
     bool clearInterruption = false,
     bool clearSavedSession = false,
@@ -66,6 +75,7 @@ class ThinkingUiState {
           ? null
           : (savedSession ?? this.savedSession),
       useBluetoothMic: useBluetoothMic ?? this.useBluetoothMic,
+      liveEchoEnabled: liveEchoEnabled ?? this.liveEchoEnabled,
     );
   }
 }
