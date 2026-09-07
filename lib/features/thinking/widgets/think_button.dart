@@ -26,6 +26,9 @@ class _ThinkButtonState extends State<ThinkButton> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Reduced motion: collapse to instant rather than skip — curve/scale
+    // targets stay identical, so the end state is unaffected either way.
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
     return Semantics(
       button: true,
       label: 'Think',
@@ -37,10 +40,10 @@ class _ThinkButtonState extends State<ThinkButton> {
         onTapCancel: () => _setPressed(false),
         child: AnimatedScale(
           scale: _pressed ? AppMotion.pressedScale : 1.0,
-          duration: AppMotion.fast,
+          duration: reduceMotion ? Duration.zero : AppMotion.fast,
           curve: AppMotion.enter,
           child: AnimatedContainer(
-            duration: AppMotion.medium,
+            duration: reduceMotion ? Duration.zero : AppMotion.medium,
             width: 176,
             height: 176,
             decoration: BoxDecoration(

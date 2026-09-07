@@ -12,10 +12,11 @@ class WaveformVisualizer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = Theme.of(context).colorScheme.primary;
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
     return SizedBox(
       height: 48,
       child: AnimatedContainer(
-        duration: AppMotion.fast,
+        duration: reduceMotion ? Duration.zero : AppMotion.fast,
         curve: AppMotion.enter,
         child: CustomPaint(
           size: const Size(double.infinity, 48),
