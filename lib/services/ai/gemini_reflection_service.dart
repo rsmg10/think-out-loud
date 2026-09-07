@@ -73,7 +73,11 @@ class GeminiReflectionService implements ReflectionService {
           'polished document. Reflect it back to them: summarize it, and '
           'pull out key ideas, concrete action points, and open '
           'questions they raised but didn\'t resolve. Use only what\'s '
-          'actually in the transcript — do not invent content.\n\n'
+          'actually in the transcript — do not invent content. Also infer '
+          'a single mood word for the speaker, choosing only from: calm, '
+          'anxious, energized, frustrated, hopeful, neutral, mixed — '
+          'default to "mixed" if it is not clearly one of the others; '
+          'never invent a different word.\n\n'
           'Transcript:\n$transcript',
         ),
       ]);

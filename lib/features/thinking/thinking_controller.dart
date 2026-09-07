@@ -200,6 +200,7 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
             actionPoints: result.actionPoints,
             actionPointsDone: const [],
             openQuestions: result.openQuestions,
+            mood: result.mood,
           );
     try {
       await _repository.save(updated);

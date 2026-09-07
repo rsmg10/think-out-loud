@@ -163,6 +163,7 @@ void main() {
           keyIdeas: ['Budget needs revisiting'],
           actionPoints: ['Call Sam about the budget'],
           openQuestions: [],
+          mood: 'hopeful',
         ),
       );
 
@@ -181,6 +182,7 @@ void main() {
       ]);
       expect(saved.last.summary, 'Discussed the budget.');
       expect(saved.last.actionPoints, ['Call Sam about the budget']);
+      expect(saved.last.mood, 'hopeful');
     },
   );
 

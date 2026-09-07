@@ -50,6 +50,19 @@ ThinkingSession _buildSession() {
   );
 }
 
+ThinkingSession _buildPendingSession() {
+  final start = DateTime(2026, 1, 1, 9);
+  return ThinkingSession(
+    id: 's1',
+    createdAt: start,
+    startedAt: start,
+    endedAt: start.add(const Duration(minutes: 5)),
+    duration: const Duration(minutes: 5),
+    transcript: 'I should call Sam about the budget.',
+    status: AiProcessingStatus.pending,
+  );
+}
+
 Future<void> _pump(WidgetTester tester, _FakeSessionRepository repository) {
   return tester.pumpWidget(
     ProviderScope(
@@ -114,4 +127,35 @@ void main() {
       expect(checkbox.value, isTrue);
     },
   );
+
+  testWidgets(
+    'a pending reflection shows the skeleton placeholder, not the old spinner/text',
+    (tester) async {
+      await _pump(tester, _FakeSessionRepository(_buildPendingSession()));
+      // Deliberately not pumpAndSettle: the skeleton's pulse timer and the
+      // screen's poll timer are both periodic and never "settle" — a few
+      // zero-duration pumps are enough to let the FutureProvider resolve
+      // without advancing the fake clock far enough to fire either timer.
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('reflection_skeleton')), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text('Reflecting on this session…'), findsNothing);
+
+      // Unmount before the test ends so both periodic timers are
+      // cancelled in dispose(), rather than left pending.
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('a calm mood renders its icon next to the header', (
+    tester,
+  ) async {
+    final session = _buildSession().copyWith(mood: 'calm');
+    await _pump(tester, _FakeSessionRepository(session));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.self_improvement_outlined), findsOneWidget);
+  });
 }

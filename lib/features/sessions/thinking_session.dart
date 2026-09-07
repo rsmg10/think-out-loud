@@ -39,6 +39,11 @@ class ThinkingSession {
   final List<bool> actionPointsDone;
   final List<String> openQuestions;
 
+  /// One word from the fixed vocabulary in GeminiReflectionService's
+  /// prompt (calm/anxious/energized/frustrated/hopeful/neutral/mixed), or
+  /// null before reflection has run.
+  final String? mood;
+
   final List<String> tags;
   final AiProcessingStatus status;
 
@@ -55,6 +60,7 @@ class ThinkingSession {
     this.actionPoints = const [],
     this.actionPointsDone = const [],
     this.openQuestions = const [],
+    this.mood,
     this.tags = const [],
     this.status = AiProcessingStatus.notProcessed,
   });
@@ -69,6 +75,7 @@ class ThinkingSession {
     List<String>? actionPoints,
     List<bool>? actionPointsDone,
     List<String>? openQuestions,
+    String? mood,
     AiProcessingStatus? status,
   }) {
     return ThinkingSession(
@@ -84,6 +91,7 @@ class ThinkingSession {
       actionPoints: actionPoints ?? this.actionPoints,
       actionPointsDone: actionPointsDone ?? this.actionPointsDone,
       openQuestions: openQuestions ?? this.openQuestions,
+      mood: mood ?? this.mood,
       tags: tags,
       status: status ?? this.status,
     );
@@ -113,6 +121,7 @@ class ThinkingSession {
       'actionPoints': jsonEncode(actionPoints),
       'actionPointsDone': jsonEncode(actionPointsDone),
       'openQuestions': jsonEncode(openQuestions),
+      'mood': mood,
       'tags': jsonEncode(tags),
       'status': status.name,
     };
@@ -146,6 +155,7 @@ class ThinkingSession {
       actionPoints: decodeOrEmpty(map['actionPoints']),
       actionPointsDone: decodeBoolListOrEmpty(map['actionPointsDone']),
       openQuestions: decodeOrEmpty(map['openQuestions']),
+      mood: map['mood'] as String?,
       tags: decodeOrEmpty(map['tags']),
       status: aiProcessingStatusFromName(map['status'] as String),
     );

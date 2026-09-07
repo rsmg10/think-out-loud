@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../core/providers.dart';
+import '../../core/theme/app_motion.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../shared/utils/duration_format.dart';
 import '../../shared/widgets/state_views.dart';
@@ -72,6 +73,7 @@ class _SessionDetailsScreenState extends ConsumerState<SessionDetailsScreen> {
             actionPoints: result.actionPoints,
             actionPointsDone: const [],
             openQuestions: result.openQuestions,
+            mood: result.mood,
           );
     await repository.save(updated);
     if (mounted) ref.invalidate(_sessionDetailsProvider(widget.sessionId));
@@ -199,6 +201,19 @@ void _copyToClipboard(BuildContext context, String label, String text) {
   ).showSnackBar(SnackBar(content: Text('$label copied')));
 }
 
+/// Fixed vocabulary only (see GeminiReflectionService's prompt) — anything
+/// else (including null, e.g. before reflection has run) falls back to a
+/// neutral dot rather than guessing at an icon for an unknown word.
+const _moodIcons = <String, IconData>{
+  'calm': Icons.self_improvement_outlined,
+  'anxious': Icons.bolt_outlined,
+  'energized': Icons.flash_on_outlined,
+  'frustrated': Icons.sentiment_dissatisfied_outlined,
+  'hopeful': Icons.wb_sunny_outlined,
+};
+
+IconData _moodIcon(String? mood) => _moodIcons[mood] ?? Icons.circle_outlined;
+
 class _SessionDetailsBody extends StatefulWidget {
   final ThinkingSession session;
   final VoidCallback onRetryReflection;
@@ -245,6 +260,49 @@ class _SessionDetailsBodyState extends State<_SessionDetailsBody> {
     super.dispose();
   }
 
+  /// 40ms-per-section stagger step (Summary, then Key ideas, then Action
+  /// points, then Open questions) — not part of AppMotion since it's a
+  /// one-off offset rather than a reusable rhythm.
+  static const _staggerStep = Duration(milliseconds: 40);
+
+  /// Fade-in-and-rise entrance, once, for a completed reflection section.
+  /// Keyed by session id + [index] and driven off a fixed 0->1 tween so a
+  /// rebuild that doesn't change the tween's begin/end (poll tick, a
+  /// checkbox toggle) leaves it sitting at its already-reached end value
+  /// instead of restarting — see TweenAnimationBuilder's semantics.
+  ///
+  /// The stagger is a genuine delayed start, not just a slower reveal: an
+  /// [Interval] curve holds the tween at 0 for the delay portion of the
+  /// total duration, then eases in over AppMotion.medium — all sections
+  /// finish revealing AppMotion.medium after they individually start.
+  Widget _revealSection(
+    BuildContext context, {
+    required int index,
+    required Widget child,
+  }) {
+    if (widget.session.status != AiProcessingStatus.complete ||
+        MediaQuery.of(context).disableAnimations) {
+      return child;
+    }
+    final delay = _staggerStep * index;
+    final total = AppMotion.medium + delay;
+    final delayFraction = delay.inMicroseconds / total.inMicroseconds;
+    return TweenAnimationBuilder<double>(
+      key: ValueKey('reveal_${widget.session.id}_$index'),
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: total,
+      curve: Interval(delayFraction, 1.0, curve: AppMotion.enter),
+      builder: (context, value, child) => Opacity(
+        opacity: value,
+        child: Transform.translate(
+          offset: Offset(0, (1 - value) * AppSpacing.sm),
+          child: child,
+        ),
+      ),
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -254,7 +312,20 @@ class _SessionDetailsBodyState extends State<_SessionDetailsBody> {
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.lg),
       children: [
-        Text(dateFormat.format(session.startedAt), style: theme.textTheme.bodyMedium),
+        Row(
+          children: [
+            Icon(
+              _moodIcon(session.mood),
+              size: 16,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Text(
+              dateFormat.format(session.startedAt),
+              style: theme.textTheme.bodyMedium,
+            ),
+          ],
+        ),
         const SizedBox(height: AppSpacing.xs),
         Text(
           formatDurationWords(session.duration),
@@ -269,17 +340,7 @@ class _SessionDetailsBodyState extends State<_SessionDetailsBody> {
           ),
         if (session.status == AiProcessingStatus.pending) ...[
           const SizedBox(height: AppSpacing.xl),
-          Row(
-            children: [
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Text('Reflecting on this session…', style: theme.textTheme.bodyMedium),
-            ],
-          ),
+          const _ReflectionSkeleton(key: Key('reflection_skeleton')),
         ],
         if (session.status == AiProcessingStatus.failed) ...[
           const SizedBox(height: AppSpacing.xl),
@@ -304,32 +365,47 @@ class _SessionDetailsBodyState extends State<_SessionDetailsBody> {
         ],
         if (session.summary != null && session.summary!.trim().isNotEmpty) ...[
           const SizedBox(height: AppSpacing.xl),
-          _Section(
-            title: 'Summary',
-            trailing: IconButton(
-              icon: const Icon(Icons.copy_outlined, size: 20),
-              tooltip: 'Copy summary',
-              onPressed: () =>
-                  _copyToClipboard(context, 'Summary', session.summary!),
+          _revealSection(
+            context,
+            index: 0,
+            child: _Section(
+              title: 'Summary',
+              trailing: IconButton(
+                icon: const Icon(Icons.copy_outlined, size: 20),
+                tooltip: 'Copy summary',
+                onPressed: () =>
+                    _copyToClipboard(context, 'Summary', session.summary!),
+              ),
+              child: Text(session.summary!),
             ),
-            child: Text(session.summary!),
           ),
         ],
         if (session.keyIdeas.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.lg),
-          _Section(title: 'Key ideas', child: _BulletList(items: session.keyIdeas)),
+          _revealSection(
+            context,
+            index: 1,
+            child: _Section(
+              title: 'Key ideas',
+              child: _BulletList(items: session.keyIdeas),
+            ),
+          ),
         ],
         if (session.actionPoints.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.lg),
-          _Section(
-            title: 'Action points',
-            child: _ActionPointsChecklist(
-              items: session.actionPoints,
-              done: _actionPointsDone,
-              onChanged: (index, value) {
-                setState(() => _actionPointsDone[index] = value);
-                widget.onToggleActionPoint(index, value);
-              },
+          _revealSection(
+            context,
+            index: 2,
+            child: _Section(
+              title: 'Action points',
+              child: _ActionPointsChecklist(
+                items: session.actionPoints,
+                done: _actionPointsDone,
+                onChanged: (index, value) {
+                  setState(() => _actionPointsDone[index] = value);
+                  widget.onToggleActionPoint(index, value);
+                },
+              ),
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -347,9 +423,16 @@ class _SessionDetailsBodyState extends State<_SessionDetailsBody> {
         ],
         if (session.openQuestions.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.lg),
-          _Section(
-            title: 'Open questions',
-            child: _BulletList(items: session.openQuestions, icon: Icons.help_outline),
+          _revealSection(
+            context,
+            index: 3,
+            child: _Section(
+              title: 'Open questions',
+              child: _BulletList(
+                items: session.openQuestions,
+                icon: Icons.help_outline,
+              ),
+            ),
           ),
         ],
         if (session.transcript != null && session.transcript!.trim().isNotEmpty) ...[
@@ -410,6 +493,79 @@ class _Section extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         child,
       ],
+    );
+  }
+}
+
+/// Placeholder shown while reflection is pending, in place of where the
+/// Summary/Key ideas/Action points text will land — a pulsing set of bars
+/// rather than a spinner, so the wait reads as "content is forming" (per
+/// the AI-generation-wait pattern in current journaling apps) instead of
+/// an indeterminate stall.
+class _ReflectionSkeleton extends StatefulWidget {
+  const _ReflectionSkeleton({super.key});
+
+  @override
+  State<_ReflectionSkeleton> createState() => _ReflectionSkeletonState();
+}
+
+class _ReflectionSkeletonState extends State<_ReflectionSkeleton> {
+  static const _dim = 0.4;
+  static const _bright = 1.0;
+
+  double _opacity = _bright;
+  Timer? _timer;
+  bool _timerDecided = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_timerDecided) return;
+    _timerDecided = true;
+    if (!MediaQuery.of(context).disableAnimations) {
+      _timer = Timer.periodic(AppMotion.slow, (_) {
+        setState(() => _opacity = _opacity == _bright ? _dim : _bright);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08);
+    Widget bar(double widthFactor) => FractionallySizedBox(
+      alignment: Alignment.centerLeft,
+      widthFactor: widthFactor,
+      child: Container(
+        height: 14,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(AppSpacing.xs),
+        ),
+      ),
+    );
+    final bars = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        bar(0.95),
+        const SizedBox(height: AppSpacing.sm),
+        bar(0.7),
+        const SizedBox(height: AppSpacing.sm),
+        bar(0.85),
+        const SizedBox(height: AppSpacing.sm),
+        bar(0.5),
+      ],
+    );
+    if (_timer == null) return bars;
+    return AnimatedOpacity(
+      opacity: _opacity,
+      duration: AppMotion.slow,
+      child: bars,
     );
   }
 }
@@ -485,14 +641,17 @@ class _ActionPointsChecklist extends StatelessWidget {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      items[i],
-                      style: (i < done.length && done[i])
-                          ? theme.textTheme.bodyMedium?.copyWith(
-                              decoration: TextDecoration.lineThrough,
-                              color: theme.textTheme.bodySmall?.color,
-                            )
-                          : theme.textTheme.bodyMedium,
+                    child: AnimatedDefaultTextStyle(
+                      duration: AppMotion.fast,
+                      style:
+                          (i < done.length && done[i])
+                              ? theme.textTheme.bodyMedium?.copyWith(
+                                  decoration: TextDecoration.lineThrough,
+                                  color: theme.textTheme.bodySmall?.color,
+                                ) ??
+                                  const TextStyle()
+                          : theme.textTheme.bodyMedium ?? const TextStyle(),
+                      child: Text(items[i]),
                     ),
                   ),
                 ),
