@@ -6,7 +6,7 @@ import 'package:sqflite/sqflite.dart';
 /// reverse-chronological) for free without hand-rolled file parsing.
 class AppDatabase {
   static const _dbName = 'think_out_loud.db';
-  static const _dbVersion = 1;
+  static const _dbVersion = 2;
 
   Database? _db;
 
@@ -38,6 +38,7 @@ class AppDatabase {
               summary TEXT,
               keyIdeas TEXT,
               actionPoints TEXT,
+              actionPointsDone TEXT,
               openQuestions TEXT,
               tags TEXT,
               status TEXT NOT NULL
@@ -46,6 +47,13 @@ class AppDatabase {
           await db.execute(
             'CREATE INDEX idx_sessions_startedAt ON sessions(startedAt)',
           );
+        },
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 2) {
+            await db.execute(
+              'ALTER TABLE sessions ADD COLUMN actionPointsDone TEXT',
+            );
+          }
         },
       ),
     );

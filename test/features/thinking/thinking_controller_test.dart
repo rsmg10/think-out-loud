@@ -84,6 +84,11 @@ void main() {
       () => preferences.getPreferBluetoothMic(),
     ).thenAnswer((_) async => true);
     when(
+      () => preferences.getLiveEchoEnabled(),
+    ).thenAnswer((_) async => true);
+    when(() => audio.hasMicPermission()).thenAnswer((_) async => true);
+    when(() => audio.requestMicPermission()).thenAnswer((_) async => true);
+    when(
       () => transcription.startLiveTranscription(),
     ).thenAnswer((_) async {});
     when(
@@ -393,4 +398,64 @@ void main() {
       expect(controller.state.error?.type, AudioEngineErrorType.engineFailure);
     },
   );
+
+  group('live echo disabled', () {
+    setUp(() {
+      when(
+        () => preferences.getLiveEchoEnabled(),
+      ).thenAnswer((_) async => false);
+    });
+
+    test(
+      'start() skips the monitoring engine and route/headphone check entirely',
+      () async {
+        await controller.start();
+
+        expect(controller.state.phase, ThinkingPhase.thinking);
+        expect(controller.state.liveEchoEnabled, isFalse);
+        verifyNever(() => audio.currentRoute());
+        verifyNever(() => storage.newAudioPath(any()));
+        verifyNever(
+          () => audio.start(
+            any(),
+            useBluetoothMic: any(named: 'useBluetoothMic'),
+          ),
+        );
+        verify(() => transcription.startLiveTranscription()).called(1);
+      },
+    );
+
+    test(
+      'stop() does not call audio.stop() and saves a session with no audioReference',
+      () async {
+        await controller.start();
+
+        await controller.stop();
+
+        expect(controller.state.phase, ThinkingPhase.saved);
+        expect(controller.state.savedSession!.audioReference, isNull);
+        verifyNever(() => audio.stop());
+        verify(() => repository.save(any())).called(1);
+      },
+    );
+
+    test(
+      'a denied mic permission surfaces as permissionDenied and never starts transcription',
+      () async {
+        when(() => audio.hasMicPermission()).thenAnswer((_) async => false);
+        when(
+          () => audio.requestMicPermission(),
+        ).thenAnswer((_) async => false);
+
+        await controller.start();
+
+        expect(controller.state.phase, ThinkingPhase.idle);
+        expect(
+          controller.state.error?.type,
+          AudioEngineErrorType.permissionDenied,
+        );
+        verifyNever(() => transcription.startLiveTranscription());
+      },
+    );
+  });
 }

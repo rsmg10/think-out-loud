@@ -40,6 +40,7 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
   DateTime? _phaseStartedAt;
   Duration _accumulated = Duration.zero;
   bool _useBluetoothMic = true;
+  bool _liveEchoEnabled = true;
 
   ThinkingController(
     this._audio,
@@ -59,31 +60,52 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
     _sessionId = _uuid.v4();
     _createdAt = DateTime.now();
     _useBluetoothMic = await _preferences.getPreferBluetoothMic();
-    // Fetched up front (rather than left at the default `unknown`) so the
-    // UI can show "Connecting to your headphones…" during a Bluetooth
-    // SCO handshake instead of a bare spinner that looks stuck.
-    final startingRoute = await _audio.currentRoute();
-    state = state.copyWith(
-      route: startingRoute,
-      useBluetoothMic: _useBluetoothMic,
-    );
-    try {
-      _audioPath = await _audioStorage.newAudioPath(_sessionId!);
-    } catch (e) {
-      state = ThinkingUiState(
-        phase: ThinkingPhase.idle,
-        error: AudioEngineException(
-          AudioEngineErrorType.storageFailure,
-          'Could not prepare local storage for this session: $e',
-        ),
+    _liveEchoEnabled = await _preferences.getLiveEchoEnabled();
+    state = state.copyWith(liveEchoEnabled: _liveEchoEnabled);
+
+    if (_liveEchoEnabled) {
+      // Fetched up front (rather than left at the default `unknown`) so
+      // the UI can show "Connecting to your headphones…" during a
+      // Bluetooth SCO handshake instead of a bare spinner that looks
+      // stuck. Only meaningful when the live echo will actually run.
+      final startingRoute = await _audio.currentRoute();
+      state = state.copyWith(
+        route: startingRoute,
+        useBluetoothMic: _useBluetoothMic,
       );
-      return;
-    }
-    try {
-      await _audio.start(_audioPath!, useBluetoothMic: _useBluetoothMic);
-    } on AudioEngineException catch (e) {
-      state = ThinkingUiState(phase: ThinkingPhase.idle, error: e);
-      return;
+      try {
+        _audioPath = await _audioStorage.newAudioPath(_sessionId!);
+      } catch (e) {
+        state = ThinkingUiState(
+          phase: ThinkingPhase.idle,
+          error: AudioEngineException(
+            AudioEngineErrorType.storageFailure,
+            'Could not prepare local storage for this session: $e',
+          ),
+        );
+        return;
+      }
+      try {
+        await _audio.start(_audioPath!, useBluetoothMic: _useBluetoothMic);
+      } on AudioEngineException catch (e) {
+        state = ThinkingUiState(phase: ThinkingPhase.idle, error: e);
+        return;
+      }
+    } else {
+      // No monitoring engine, no headphone/route requirement, no
+      // recorded audio — the user is speaking straight at the phone.
+      // Transcription still needs mic access, so ask for it directly
+      // rather than relying on the (skipped) native engine's own check.
+      if (!await _audio.hasMicPermission() && !await _audio.requestMicPermission()) {
+        state = ThinkingUiState(
+          phase: ThinkingPhase.idle,
+          error: const AudioEngineException(
+            AudioEngineErrorType.permissionDenied,
+            'Microphone permission is required to capture this session.',
+          ),
+        );
+        return;
+      }
     }
     // Transcription is supplementary, not the core feature — a failure
     // here must never block or fail the actual thinking session.
@@ -91,12 +113,15 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
     _accumulated = Duration.zero;
     _phaseStartedAt = DateTime.now();
     _beginTicking();
-    _levelSub = _audio.levelStream.listen(
-      (level) => state = state.copyWith(level: level),
-    );
+    if (_liveEchoEnabled) {
+      _levelSub = _audio.levelStream.listen(
+        (level) => state = state.copyWith(level: level),
+      );
+    }
     state = ThinkingUiState(
       phase: ThinkingPhase.thinking,
       startedAt: _createdAt,
+      liveEchoEnabled: _liveEchoEnabled,
     );
   }
 
@@ -108,11 +133,13 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
     state = state.copyWith(phase: ThinkingPhase.stopping);
     _stopTicking();
     await _levelSub?.cancel();
-    try {
-      await _audio.stop();
-    } on AudioEngineException catch (e) {
-      state = state.copyWith(phase: ThinkingPhase.idle, error: e);
-      return;
+    if (_liveEchoEnabled) {
+      try {
+        await _audio.stop();
+      } on AudioEngineException catch (e) {
+        state = state.copyWith(phase: ThinkingPhase.idle, error: e);
+        return;
+      }
     }
     final transcript = await _transcription.stopLiveTranscription();
     final duration = _accumulated;
@@ -171,6 +198,7 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
             summary: result.summary,
             keyIdeas: result.keyIdeas,
             actionPoints: result.actionPoints,
+            actionPointsDone: const [],
             openQuestions: result.openQuestions,
           );
     try {

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
@@ -69,9 +70,27 @@ class _SessionDetailsScreenState extends ConsumerState<SessionDetailsScreen> {
             summary: result.summary,
             keyIdeas: result.keyIdeas,
             actionPoints: result.actionPoints,
+            actionPointsDone: const [],
             openQuestions: result.openQuestions,
           );
     await repository.save(updated);
+    if (mounted) ref.invalidate(_sessionDetailsProvider(widget.sessionId));
+  }
+
+  Future<void> _toggleActionPoint(
+    ThinkingSession session,
+    int index,
+    bool value,
+  ) async {
+    final done = List<bool>.generate(
+      session.actionPoints.length,
+      (i) =>
+          i < session.actionPointsDone.length && session.actionPointsDone[i],
+    );
+    done[index] = value;
+    await ref
+        .read(sessionRepositoryProvider)
+        .save(session.copyWith(actionPointsDone: done));
     if (mounted) ref.invalidate(_sessionDetailsProvider(widget.sessionId));
   }
 
@@ -120,6 +139,8 @@ class _SessionDetailsScreenState extends ConsumerState<SessionDetailsScreen> {
           return _SessionDetailsBody(
             session: session,
             onRetryReflection: () => _retryReflection(session),
+            onToggleActionPoint: (index, value) =>
+                _toggleActionPoint(session, index, value),
           );
         },
       ),
@@ -171,13 +192,22 @@ class _SessionDetailsScreenState extends ConsumerState<SessionDetailsScreen> {
   }
 }
 
+void _copyToClipboard(BuildContext context, String label, String text) {
+  Clipboard.setData(ClipboardData(text: text));
+  ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text('$label copied')));
+}
+
 class _SessionDetailsBody extends StatefulWidget {
   final ThinkingSession session;
   final VoidCallback onRetryReflection;
+  final void Function(int index, bool value) onToggleActionPoint;
 
   const _SessionDetailsBody({
     required this.session,
     required this.onRetryReflection,
+    required this.onToggleActionPoint,
   });
 
   @override
@@ -187,6 +217,7 @@ class _SessionDetailsBody extends StatefulWidget {
 class _SessionDetailsBodyState extends State<_SessionDetailsBody> {
   AudioPlayer? _player;
   String? _playerError;
+  late List<bool> _actionPointsDone;
 
   @override
   void initState() {
@@ -200,6 +231,12 @@ class _SessionDetailsBodyState extends State<_SessionDetailsBody> {
         return null;
       });
     }
+    _actionPointsDone = List<bool>.generate(
+      widget.session.actionPoints.length,
+      (i) => i < widget.session.actionPointsDone.length
+          ? widget.session.actionPointsDone[i]
+          : false,
+    );
   }
 
   @override
@@ -267,7 +304,16 @@ class _SessionDetailsBodyState extends State<_SessionDetailsBody> {
         ],
         if (session.summary != null && session.summary!.trim().isNotEmpty) ...[
           const SizedBox(height: AppSpacing.xl),
-          _Section(title: 'Summary', child: Text(session.summary!)),
+          _Section(
+            title: 'Summary',
+            trailing: IconButton(
+              icon: const Icon(Icons.copy_outlined, size: 20),
+              tooltip: 'Copy summary',
+              onPressed: () =>
+                  _copyToClipboard(context, 'Summary', session.summary!),
+            ),
+            child: Text(session.summary!),
+          ),
         ],
         if (session.keyIdeas.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.lg),
@@ -277,7 +323,14 @@ class _SessionDetailsBodyState extends State<_SessionDetailsBody> {
           const SizedBox(height: AppSpacing.lg),
           _Section(
             title: 'Action points',
-            child: _BulletList(items: session.actionPoints, icon: Icons.check_box_outlined),
+            child: _ActionPointsChecklist(
+              items: session.actionPoints,
+              done: _actionPointsDone,
+              onChanged: (index, value) {
+                setState(() => _actionPointsDone[index] = value);
+                widget.onToggleActionPoint(index, value);
+              },
+            ),
           ),
           const SizedBox(height: AppSpacing.sm),
           OutlinedButton.icon(
@@ -305,7 +358,25 @@ class _SessionDetailsBodyState extends State<_SessionDetailsBody> {
             data: theme.copyWith(dividerColor: Colors.transparent),
             child: ExpansionTile(
               tilePadding: EdgeInsets.zero,
-              title: Text('Transcript', style: theme.textTheme.headlineMedium),
+              title: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Transcript',
+                      style: theme.textTheme.headlineMedium,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.copy_outlined, size: 20),
+                    tooltip: 'Copy transcript',
+                    onPressed: () => _copyToClipboard(
+                      context,
+                      'Transcript',
+                      session.transcript!,
+                    ),
+                  ),
+                ],
+              ),
               childrenPadding: const EdgeInsets.only(top: AppSpacing.sm),
               expandedAlignment: Alignment.centerLeft,
               children: [Text(session.transcript!, style: theme.textTheme.bodyMedium)],
@@ -320,8 +391,9 @@ class _SessionDetailsBodyState extends State<_SessionDetailsBody> {
 class _Section extends StatelessWidget {
   final String title;
   final Widget child;
+  final Widget? trailing;
 
-  const _Section({required this.title, required this.child});
+  const _Section({required this.title, required this.child, this.trailing});
 
   @override
   Widget build(BuildContext context) {
@@ -329,7 +401,12 @@ class _Section extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: theme.textTheme.headlineMedium),
+        Row(
+          children: [
+            Expanded(child: Text(title, style: theme.textTheme.headlineMedium)),
+            ?trailing,
+          ],
+        ),
         const SizedBox(height: AppSpacing.sm),
         child,
       ],
@@ -361,6 +438,64 @@ class _BulletList extends StatelessWidget {
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(child: Text(item, style: theme.textTheme.bodyMedium)),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Interactive, persisted checklist — unlike [_BulletList] (used for key
+/// ideas/open questions, which are read-only), each action point can be
+/// checked off. Rendering is purely a function of [done]; persistence is
+/// the caller's job via [onChanged].
+class _ActionPointsChecklist extends StatelessWidget {
+  final List<String> items;
+  final List<bool> done;
+  final void Function(int index, bool value) onChanged;
+
+  const _ActionPointsChecklist({
+    required this.items,
+    required this.done,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < items.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: Checkbox(
+                    value: i < done.length && done[i],
+                    onChanged: (value) => onChanged(i, value ?? false),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      items[i],
+                      style: (i < done.length && done[i])
+                          ? theme.textTheme.bodyMedium?.copyWith(
+                              decoration: TextDecoration.lineThrough,
+                              color: theme.textTheme.bodySmall?.color,
+                            )
+                          : theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),

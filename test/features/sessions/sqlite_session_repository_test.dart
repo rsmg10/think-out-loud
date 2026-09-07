@@ -113,4 +113,20 @@ void main() {
 
     expect(await repository.listAll(), isEmpty);
   });
+
+  test(
+    'actionPointsDone round-trips alongside actionPoints (checklist state)',
+    () async {
+      final session = _session('s1').copyWith(
+        actionPoints: ['a', 'b'],
+        actionPointsDone: [true, false],
+      );
+
+      await repository.save(session);
+      final loaded = await repository.getById('s1');
+
+      expect(loaded!.actionPoints, ['a', 'b']);
+      expect(loaded.actionPointsDone, [true, false]);
+    },
+  );
 }

@@ -43,3 +43,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local-only secrets — never committed. See docs/known-limitations.md.
+run_local.sh
+*.local.sh
+.env
+.env.*

@@ -17,7 +17,8 @@ Guiding principle: *every session should leave the user clearer than before.*
 Full context lives in `docs/`. Read these before writing code:
 - `docs/audio-architecture.md` — **read first.** The core feature and the
   hardest part. Do not pick an audio package before reading this.
-- `docs/design.md` — design system status (currently unresolved, see below)
+- `docs/design.md` — design system (resolved, v2 — see the "Open blocker"
+  note below for how that was confirmed)
 - `docs/session-model.md` — data model for a thinking session
 - `docs/mvp-scope.md` — exact Phase 1 feature boundary
 - `docs/testing.md` — required manual + automated test checklist
@@ -87,6 +88,19 @@ silently contradicted.
   Google account; see `docs/known-limitations.md`.
 - **Notion**: not built yet. Same confirmation-required shape as
   Calendar, once the user creates a Notion integration token.
+- **Live echo is now configurable** (Settings → "Live voice echo",
+  `UserPreferencesService.getLiveEchoEnabled`/`setLiveEchoEnabled`,
+  default on). Requested because the live mic→headphone echo — Phase 1's
+  entire premise — also forces headphone use: monitoring through the
+  speaker causes feedback, so `ThinkingController` has always refused to
+  start without a safe route. Turning the echo off in Settings skips the
+  native monitoring engine and that route check entirely (no headphones
+  required, no audio recorded), while transcription and reflection keep
+  running exactly as before — so a user can speak straight at the phone
+  and still get a transcript + AI reflection out of the session. This
+  does not weaken the "no feedback through the speaker" rule: it applies
+  only when the live audio path is actually running, and with echo off
+  that path never starts.
 
 ## Architecture
 

@@ -112,6 +112,31 @@ final preferBluetoothMicProvider =
       );
     });
 
+/// Same pattern as [PreferBluetoothMicController] — Home/Active Thinking
+/// read this (not the raw service) so copy about headphones/echo never
+/// disagrees with the Settings switch.
+class LiveEchoController extends StateNotifier<bool> {
+  final UserPreferencesService _preferences;
+
+  LiveEchoController(this._preferences) : super(true) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    state = await _preferences.getLiveEchoEnabled();
+  }
+
+  Future<void> setLiveEchoEnabled(bool value) async {
+    state = value;
+    await _preferences.setLiveEchoEnabled(value);
+  }
+}
+
+final liveEchoEnabledProvider =
+    StateNotifierProvider<LiveEchoController, bool>((ref) {
+      return LiveEchoController(ref.watch(userPreferencesServiceProvider));
+    });
+
 /// Refreshed whenever a session is saved/deleted via [sessionListRefreshProvider.notifier].state++.
 final sessionListRefreshProvider = StateProvider<int>((ref) => 0);
 

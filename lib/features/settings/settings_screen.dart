@@ -89,6 +89,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final preferBluetoothMic = ref.watch(preferBluetoothMicProvider);
+    final liveEchoEnabled = ref.watch(liveEchoEnabledProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
@@ -104,19 +105,41 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.graphic_eq),
+            title: const Text('Live voice echo'),
+            subtitle: Text(
+              liveEchoEnabled
+                  ? 'On: hear yourself think through headphones in real '
+                        'time — requires headphones plugged in or connected.'
+                  : "Off: no live playback, no headphones needed — just "
+                        'speak to your phone. Transcript and reflection '
+                        'still run.',
+            ),
+            value: liveEchoEnabled,
+            onChanged: (value) => ref
+                .read(liveEchoEnabledProvider.notifier)
+                .setLiveEchoEnabled(value),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
             secondary: const Icon(Icons.mic_outlined),
             title: const Text("Use headphones' microphone"),
             subtitle: Text(
-              preferBluetoothMic
+              !liveEchoEnabled
+                  ? "Not used while live voice echo is off — your phone's "
+                        'mic is used instead.'
+                  : preferBluetoothMic
                   ? 'On: hands-free, but Bluetooth quality and latency are '
                         'noticeably worse — a Bluetooth limit, not this app.'
                   : "Off: uses your phone's mic (keep it within earshot) "
                         'for clearer, faster audio.',
             ),
             value: preferBluetoothMic,
-            onChanged: (value) => ref
-                .read(preferBluetoothMicProvider.notifier)
-                .setPreferBluetoothMic(value),
+            onChanged: !liveEchoEnabled
+                ? null
+                : (value) => ref
+                      .read(preferBluetoothMicProvider.notifier)
+                      .setPreferBluetoothMic(value),
           ),
           ListTile(
             contentPadding: EdgeInsets.zero,
