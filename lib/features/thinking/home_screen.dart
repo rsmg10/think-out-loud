@@ -6,6 +6,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../services/audio/audio_monitoring_service.dart';
 import '../../services/audio/audio_route.dart';
 import '../history/history_screen.dart';
+import '../patterns/patterns_screen.dart';
 import '../settings/settings_screen.dart';
 import 'active_thinking_screen.dart';
 import 'session_complete_screen.dart';
@@ -60,6 +61,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             tooltip: 'History',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const HistoryScreen()),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.insights_outlined),
+            tooltip: 'Patterns',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const PatternsScreen()),
             ),
           ),
           IconButton(

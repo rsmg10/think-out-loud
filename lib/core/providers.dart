@@ -7,6 +7,7 @@ import '../features/sessions/sqlite_session_repository.dart';
 import '../features/sessions/thinking_session.dart';
 import '../features/thinking/thinking_controller.dart';
 import '../features/thinking/thinking_state.dart';
+import '../services/ai/gemini_memory_service.dart';
 import '../services/ai/gemini_reflection_service.dart';
 import '../services/ai/memory_service.dart';
 import '../services/ai/summarization_service.dart';
@@ -59,8 +60,11 @@ final communicationAnalysisServiceProvider =
     Provider<CommunicationAnalysisService>(
       (ref) => const NoOpCommunicationAnalysisService(),
     );
+// Phase 2: real Gemini calls, gated the same way as reflection above.
+// Cross-session by nature, so unlike the other Gemini-backed service this
+// one needs repository access, not just a transcript.
 final memoryServiceProvider = Provider<MemoryService>(
-  (ref) => const NoOpMemoryService(),
+  (ref) => GeminiMemoryService(ref.watch(sessionRepositoryProvider)),
 );
 
 final userPreferencesServiceProvider = Provider<UserPreferencesService>(
