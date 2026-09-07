@@ -46,6 +46,13 @@ class GeminiReflectionService implements ReflectionService {
               description:
                   'Questions the speaker raised but did not resolve.',
             ),
+            'mood': Schema.string(
+              description:
+                  'One word describing the speaker\'s mood, from this exact '
+                  'set: calm, anxious, energized, frustrated, hopeful, '
+                  'neutral, mixed.',
+              nullable: true,
+            ),
           },
           requiredProperties: ['keyIdeas', 'actionPoints', 'openQuestions'],
         ),
@@ -66,7 +73,11 @@ class GeminiReflectionService implements ReflectionService {
           'polished document. Reflect it back to them: summarize it, and '
           'pull out key ideas, concrete action points, and open '
           'questions they raised but didn\'t resolve. Use only what\'s '
-          'actually in the transcript — do not invent content.\n\n'
+          'actually in the transcript — do not invent content. Also infer '
+          'a single mood word for the speaker, choosing only from: calm, '
+          'anxious, energized, frustrated, hopeful, neutral, mixed — '
+          'default to "mixed" if it is not clearly one of the others; '
+          'never invent a different word.\n\n'
           'Transcript:\n$transcript',
         ),
       ]);
@@ -79,6 +90,7 @@ class GeminiReflectionService implements ReflectionService {
         keyIdeas: _stringList(json['keyIdeas']),
         actionPoints: _stringList(json['actionPoints']),
         openQuestions: _stringList(json['openQuestions']),
+        mood: json['mood'] as String?,
       );
     } catch (_) {
       // Reflection is best-effort and never blocks the core session —

@@ -4,11 +4,17 @@ class ReflectionResult {
   final List<String> actionPoints;
   final List<String> openQuestions;
 
+  /// One word from a fixed vocabulary (see GeminiReflectionService's
+  /// prompt) — never free-form, so Session Details can map it to a fixed
+  /// icon set.
+  final String? mood;
+
   const ReflectionResult({
     this.summary,
     this.keyIdeas = const [],
     this.actionPoints = const [],
     this.openQuestions = const [],
+    this.mood,
   });
 }
 

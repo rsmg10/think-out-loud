@@ -129,4 +129,23 @@ void main() {
       expect(loaded.actionPointsDone, [true, false]);
     },
   );
+
+  test(
+    'mood round-trips through the real (v3) schema',
+    () async {
+      final session = _session('s1').copyWith(mood: 'calm');
+
+      await repository.save(session);
+      final loaded = await repository.getById('s1');
+
+      expect(loaded!.mood, 'calm');
+    },
+  );
+
+  test('mood is null when reflection has not produced one yet', () async {
+    await repository.save(_session('s1'));
+    final loaded = await repository.getById('s1');
+
+    expect(loaded!.mood, isNull);
+  });
 }
