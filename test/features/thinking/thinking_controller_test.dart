@@ -147,7 +147,7 @@ void main() {
   );
 
   test(
-    'a captured transcript triggers reflection: saved notProcessed, then pending, then complete',
+    'a captured transcript is saved pending in the first write, then complete',
     () async {
       when(
         () =>
@@ -176,7 +176,6 @@ void main() {
         () => repository.save(captureAny()),
       ).captured.cast<ThinkingSession>();
       expect(saved.map((s) => s.status).toList(), [
-        AiProcessingStatus.notProcessed,
         AiProcessingStatus.pending,
         AiProcessingStatus.complete,
       ]);

@@ -153,10 +153,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Text('Privacy', style: theme.textTheme.headlineMedium),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'Everything you record stays on this device. Nothing is '
-            'uploaded, and no AI processing runs on your sessions in this '
-            'version of the app. The live thinking audio never leaves '
-            'your device, even temporarily.',
+            'Your recordings and sessions are stored only on this device, '
+            'and the live audio you hear never leaves it. Speech is '
+            'transcribed on your device too.\n\n'
+            'To create your reflection, a session\'s transcript — text '
+            'only, never audio — is sent to Google Gemini. Patterns sends '
+            'your past session summaries to Gemini the same way. If you '
+            'schedule action points, only the ones you pick are sent to '
+            'your Google Calendar.',
             style: theme.textTheme.bodyMedium,
           ),
           const SizedBox(height: AppSpacing.lg),

@@ -142,6 +142,7 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
       }
     }
     final transcript = await _transcription.stopLiveTranscription();
+    final hasTranscript = transcript != null && transcript.trim().isNotEmpty;
     final duration = _accumulated;
     final session = ThinkingSession(
       id: _sessionId!,
@@ -151,6 +152,13 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
       duration: duration,
       audioReference: _audioPath,
       transcript: transcript,
+      // Saved as pending in the same write (rather than a follow-up save)
+      // so Session Complete can link straight to Session Details without
+      // racing the background reflection: Details only polls while it
+      // sees pending.
+      status: hasTranscript
+          ? AiProcessingStatus.pending
+          : AiProcessingStatus.notProcessed,
     );
     try {
       await _repository.save(session);
@@ -165,7 +173,7 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
       return;
     }
     state = ThinkingUiState(phase: ThinkingPhase.saved, savedSession: session);
-    if (transcript != null && transcript.trim().isNotEmpty) {
+    if (hasTranscript) {
       // Fire-and-forget: reflection runs in the background regardless of
       // where the user navigates to next. Session Details reads whatever
       // is in the DB when it's opened, and polls while status is pending
@@ -176,14 +184,6 @@ class ThinkingController extends StateNotifier<ThinkingUiState> {
   }
 
   Future<void> _processReflection(ThinkingSession session) async {
-    try {
-      await _repository.save(
-        session.copyWith(status: AiProcessingStatus.pending),
-      );
-    } catch (_) {
-      return;
-    }
-
     ReflectionResult? result;
     try {
       result = await _reflection.reflect(session.transcript!);
